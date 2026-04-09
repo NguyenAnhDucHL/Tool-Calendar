@@ -884,11 +884,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "E:\\Tool Calendar\\ToolCalender\\ToolCalender\\ToolCalender.csproj",
+      "projectUniqueName": "E:\\Tool Calendar\\ToolCalenderGit\\ToolCalender\\ToolCalender.csproj",
       "projectName": "ToolCalender",
-      "projectPath": "E:\\Tool Calendar\\ToolCalender\\ToolCalender\\ToolCalender.csproj",
+      "projectPath": "E:\\Tool Calendar\\ToolCalenderGit\\ToolCalender\\ToolCalender.csproj",
       "packagesPath": "C:\\Users\\Admin\\.nuget\\packages\\",
-      "outputPath": "E:\\Tool Calendar\\ToolCalender\\ToolCalender\\obj\\",
+      "outputPath": "E:\\Tool Calendar\\ToolCalenderGit\\ToolCalender\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
