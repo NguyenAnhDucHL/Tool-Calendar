@@ -9,7 +9,7 @@ using ToolCalender.Models;
 
 namespace ToolCalender.Services
 {
-    public static class DocumentExtractorService
+    public static partial class DocumentExtractorService
     {
         public static DocumentRecord ExtractFromFile(string filePath)
         {
@@ -34,7 +34,7 @@ namespace ToolCalender.Services
             for (int i = 1; i <= pdf.GetNumberOfPages(); i++)
             {
                 var page = pdf.GetPage(i);
-                var strategy = new SimpleTextExtractionStrategy();
+                var strategy = new LocationTextExtractionStrategy();
                 string pageText = PdfTextExtractor.GetTextFromPage(page, strategy);
                 sb.AppendLine(pageText);
             }
@@ -53,6 +53,73 @@ namespace ToolCalender.Services
             return sb.ToString();
         }
 
+        // ------- Generated Regex — compile-time, zero runtime recompilation -------
+
+        [GeneratedRegex(@"[Ss]ố[:\s]*(\d+[/\-][A-ZĐÀÁẢÃẠĂẮẶẰẲẴÂẤẬẦẨẪ&\.\-/]+(?:[/\-][A-ZĐÀÁẢÃẠĂẮẶẰẲẴÂẤẬẦẨẪ]+)*)")]
+        private static partial Regex RxSoVanBan();
+
+        [GeneratedRegex(@"ngày\s+(\d{1,2})\s+tháng\s+(\d{1,2})\s+năm\s+(\d{4})", RegexOptions.IgnoreCase)]
+        private static partial Regex RxNgayBanHanh();
+
+        // ThoiHan: trước ngày DD/MM/YYYY
+        [GeneratedRegex(@"trước ngày\s+(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})", RegexOptions.IgnoreCase)]
+        private static partial Regex RxThoiHan1();
+
+        // ThoiHan: trước ngày NN tháng MM năm YYYY
+        [GeneratedRegex(@"trước ngày\s+(\d{1,2})\s+tháng\s+(\d{1,2})\s+năm\s+(\d{4})", RegexOptions.IgnoreCase)]
+        private static partial Regex RxThoiHan2();
+
+        // ThoiHan: chậm nhất (vào|ngày)? DD/MM/YYYY
+        [GeneratedRegex(@"chậm nhất(?:\s+(?:vào|ngày))?\s+(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})", RegexOptions.IgnoreCase)]
+        private static partial Regex RxThoiHan3();
+
+        // ThoiHan: chậm nhất (vào|ngày)? NN tháng MM năm YYYY
+        [GeneratedRegex(@"chậm nhất(?:\s+(?:vào|ngày))?\s+(\d{1,2})\s+tháng\s+(\d{1,2})\s+năm\s+(\d{4})", RegexOptions.IgnoreCase)]
+        private static partial Regex RxThoiHan4();
+
+        // ThoiHan: hạn (đến|chót|nộp) (ngày)? DD/MM/YYYY
+        [GeneratedRegex(@"hạn\s+(?:đến|chót|nộp)(?:\s+ngày)?\s+(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})", RegexOptions.IgnoreCase)]
+        private static partial Regex RxThoiHan5();
+
+        // ThoiHan: hạn (đến|chót|nộp) (ngày)? NN tháng MM năm YYYY
+        [GeneratedRegex(@"hạn\s+(?:đến|chót|nộp)(?:\s+ngày)?\s+(\d{1,2})\s+tháng\s+(\d{1,2})\s+năm\s+(\d{4})", RegexOptions.IgnoreCase)]
+        private static partial Regex RxThoiHan6();
+
+        [GeneratedRegex(@"Sở|UBND|Ủy ban|Phòng|Ban|Cục|Chi cục|Tổng cục", RegexOptions.IgnoreCase)]
+        private static partial Regex RxCoQuan();
+
+        [GeneratedRegex(@"\(qua\s+([^\)]{5,100})\)", RegexOptions.IgnoreCase)]
+        private static partial Regex RxChuQuan();
+
+        [GeneratedRegex(@"Chi cục[^\n,;\.]{3,60}|Phòng [^\n,;\.]{3,50}", RegexOptions.IgnoreCase)]
+        private static partial Regex RxChuQuanFallback();
+
+        // 7 pattern gộp thành 1 alternation — 1 lần scan thay vì 7
+        [GeneratedRegex(
+            @"Kinh tế[/\s]*Kinh tế|Hạ tầng và Đô thị|Trung tâm Cung ứng[^\n,;\.]{0,50}|Văn phòng[^\n,;\.]{0,30}|Nội vụ|Tài chính[^\n,;\.]{0,30}|Tư pháp",
+            RegexOptions.IgnoreCase)]
+        private static partial Regex RxDonVi();
+
+        [GeneratedRegex(@"[Vv]/[vV]\s*[:\.]?\s*(.{10,200})")]
+        private static partial Regex RxTrichYeu1();
+
+        [GeneratedRegex(@"[Vv]ề\s+việc\s+(.{10,200})")]
+        private static partial Regex RxTrichYeu2();
+
+        // ------- Helper parse date từ match groups (1=DD, 2=MM, 3=YYYY) -------
+        private static DateTime? TryParseDate(Match m)
+        {
+            if (!m.Success) return null;
+            try
+            {
+                return new DateTime(
+                    int.Parse(m.Groups[3].Value),
+                    int.Parse(m.Groups[2].Value),
+                    int.Parse(m.Groups[1].Value));
+            }
+            catch { return null; }
+        }
+
         // ------- Phân tích văn bản -------
         private static DocumentRecord ParseText(string text, string filePath)
         {
@@ -62,115 +129,61 @@ namespace ToolCalender.Services
                 NgayThem = DateTime.Now
             };
 
-            string t = text.Replace("\r\n", "\n").Replace("\r", "\n");
+            string t = text.Replace("\r\n", "\n").Replace("\r", "\n").Normalize(NormalizationForm.FormC);
 
-            // ── 1. Số văn bản (VD: "4233/SNN&MT-CNTY", "Số: 4233/SNN&MT-CNTY")
-            var mSoVb = Regex.Match(t,
-                @"[Ss]ố[:\s]*(\d+[/\-][A-ZĐÀÁẢÃẠĂẮẶẰẲẴÂẤẬẦẨẪ&\.\-/]+(?:[/\-][A-ZĐÀÁẢÃẠĂẮẶẰẲẴÂẤẬẦẨẪ]+)*)",
-                RegexOptions.Multiline);
+            // ── 1. Số văn bản
+            var mSoVb = RxSoVanBan().Match(t);
             if (mSoVb.Success) record.SoVanBan = mSoVb.Groups[1].Value.Trim();
 
-            // ── 2. Ngày ban hành ("ngày 08 tháng 4 năm 2026")
-            var mNgayBH = Regex.Match(t,
-                @"ngày\s+(\d{1,2})\s+tháng\s+(\d{1,2})\s+năm\s+(\d{4})",
-                RegexOptions.IgnoreCase);
-            if (mNgayBH.Success)
-            {
-                int d = int.Parse(mNgayBH.Groups[1].Value);
-                int mo = int.Parse(mNgayBH.Groups[2].Value);
-                int yr = int.Parse(mNgayBH.Groups[3].Value);
-                try { record.NgayBanHanh = new DateTime(yr, mo, d); } catch { }
-            }
+            // ── 2. Ngày ban hành
+            record.NgayBanHanh = TryParseDate(RxNgayBanHanh().Match(t));
 
-            // ── 3. Thời hạn: "trước ngày DD/MM/YYYY"
-            var mThoiHan = Regex.Match(t,
-                @"trước ngày\s+(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})",
-                RegexOptions.IgnoreCase);
-            if (mThoiHan.Success)
-            {
-                int d = int.Parse(mThoiHan.Groups[1].Value);
-                int mo = int.Parse(mThoiHan.Groups[2].Value);
-                int yr = int.Parse(mThoiHan.Groups[3].Value);
-                try { record.ThoiHan = new DateTime(yr, mo, d); } catch { }
-            }
-            else
-            {
-                // "trước ngày NN tháng MM năm YYYY"
-                var mThoiHan2 = Regex.Match(t,
-                    @"trước ngày\s+(\d{1,2})\s+tháng\s+(\d{1,2})\s+năm\s+(\d{4})",
-                    RegexOptions.IgnoreCase);
-                if (mThoiHan2.Success)
-                {
-                    int d = int.Parse(mThoiHan2.Groups[1].Value);
-                    int mo = int.Parse(mThoiHan2.Groups[2].Value);
-                    int yr = int.Parse(mThoiHan2.Groups[3].Value);
-                    try { record.ThoiHan = new DateTime(yr, mo, d); } catch { }
-                }
-            }
+            // ── 3. Thời hạn — thử lần lượt 6 dạng diễn đạt
+            record.ThoiHan = TryParseDate(RxThoiHan1().Match(t))
+                ?? TryParseDate(RxThoiHan2().Match(t))
+                ?? TryParseDate(RxThoiHan3().Match(t))
+                ?? TryParseDate(RxThoiHan4().Match(t))
+                ?? TryParseDate(RxThoiHan5().Match(t))
+                ?? TryParseDate(RxThoiHan6().Match(t));
 
-            // ── 4. Cơ quan ban hành (dòng đầu có "Sở", "UBND", "Ban", "Ủy ban")
-            var lines = t.Split('\n');
-            var coQuanLine = lines.Take(30).FirstOrDefault(l =>
-                Regex.IsMatch(l, @"(Sở|UBND|Ủy ban|Phòng|Ban|Cục|Chi cục|Tổng cục)",
-                RegexOptions.IgnoreCase));
+            // ── 4. Cơ quan ban hành (dòng đầu chứa từ khóa tổ chức)
+            var rxCoQuan = RxCoQuan();
+            var coQuanLine = t.Split('\n').Take(30).FirstOrDefault(l => rxCoQuan.IsMatch(l));
             if (!string.IsNullOrWhiteSpace(coQuanLine))
                 record.CoQuanBanHanh = coQuanLine.Trim();
 
-            // ── 5. Cơ quan chủ quản tham mưu (sau "qua" hoặc "gửi" hoặc trong "Nơi nhận")
-            var mChuQuan = Regex.Match(t,
-                @"\(qua\s+([^\)]{5,100})\)",
-                RegexOptions.IgnoreCase);
+            // ── 5. Cơ quan chủ quản tham mưu
+            var mChuQuan = RxChuQuan().Match(t);
             if (mChuQuan.Success)
                 record.CoQuanChuQuan = mChuQuan.Groups[1].Value.Trim();
             else
             {
-                // Fallback: tìm Chi cục, Phòng... ở khoảng đầu
-                var mCQ = Regex.Match(t,
-                    @"(Chi cục[^\n,;\.]{3,60}|Phòng [^\n,;\.]{3,50})",
-                    RegexOptions.IgnoreCase);
+                var mCQ = RxChuQuanFallback().Match(t);
                 if (mCQ.Success) record.CoQuanChuQuan = mCQ.Groups[1].Value.Trim();
             }
 
-            // ── 6. Đơn vị bị chỉ đạo (phòng, ban nhận chỉ thị)
-            var donViPatterns = new[]
-            {
-                @"Kinh tế[/\s]*Kinh tế",
-                @"Hạ tầng và Đô thị",
-                @"Trung tâm Cung ứng[^\n,;\.]{0,50}",
-                @"Văn phòng[^\n,;\.]{0,30}",
-                @"Nội vụ",
-                @"Tài chính[^\n,;\.]{0,30}",
-                @"Tư pháp"
-            };
-
+            // ── 6. Đơn vị bị chỉ đạo — 1 lần scan với alternation
             var donViList = new List<string>();
-            foreach (var pattern in donViPatterns)
+            foreach (Match m in RxDonVi().Matches(t))
             {
-                var matches = Regex.Matches(t, pattern, RegexOptions.IgnoreCase);
-                foreach (Match m in matches)
-                {
-                    string val = Regex.Replace(m.Value.Trim(), @"\s+", " ");
-                    if (!donViList.Any(x => x.Contains(val, StringComparison.OrdinalIgnoreCase)))
-                        donViList.Add(val);
-                }
+                string val = Regex.Replace(m.Value.Trim(), @"\s+", " ");
+                if (!donViList.Any(x => x.Contains(val, StringComparison.OrdinalIgnoreCase)))
+                    donViList.Add(val);
             }
             if (donViList.Count > 0)
                 record.DonViChiDao = string.Join("; ", donViList.Distinct());
 
-            // ── 7. Trích yếu (dòng có "V/v" hoặc "Về việc")
-            var mTrichYeu = Regex.Match(t,
-                @"[Vv]/[vV]\s*[:\.]?\s*(.{10,200})",
-                RegexOptions.Multiline);
+            // ── 7. Trích yếu
+            var mTrichYeu = RxTrichYeu1().Match(t);
             if (mTrichYeu.Success)
                 record.TrichYeu = mTrichYeu.Groups[1].Value.Trim();
             else
             {
-                var mVV = Regex.Match(t, @"[Vv]ề\s+việc\s+(.{10,200})", RegexOptions.Multiline);
+                var mVV = RxTrichYeu2().Match(t);
                 if (mVV.Success) record.TrichYeu = mVV.Groups[1].Value.Trim();
             }
 
             return record;
         }
-
     }
 }

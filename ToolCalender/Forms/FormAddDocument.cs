@@ -315,7 +315,7 @@ namespace ToolCalender.Forms
                 LoadFile(dlg.FileName);
         }
 
-        private void LoadFile(string filePath)
+        private async void LoadFile(string filePath)
         {
             _filePath = filePath;
             string name = Path.GetFileName(filePath);
@@ -325,11 +325,13 @@ namespace ToolCalender.Forms
 
             lblStatus.Text = "⏳ Đang đọc và phân tích văn bản...";
             lblStatus.ForeColor = CAccent;
-            Application.DoEvents();
+
+            btnBrowse.Enabled = false;
+            pnlDropZone.AllowDrop = false;
 
             try
             {
-                var record = DocumentExtractorService.ExtractFromFile(filePath);
+                var record = await Task.Run(() => DocumentExtractorService.ExtractFromFile(filePath));
                 PopulateFields(record);
                 lblStatus.Text = "✅ Đã trích xuất thông tin! Kiểm tra và chỉnh sửa trước khi lưu.";
                 lblStatus.ForeColor = Color.FromArgb(21, 128, 61);
@@ -338,6 +340,11 @@ namespace ToolCalender.Forms
             {
                 lblStatus.Text = $"⚠ Không trích xuất được tự động: {ex.Message}. Vui lòng nhập thủ công.";
                 lblStatus.ForeColor = Color.FromArgb(180, 38, 0);
+            }
+            finally
+            {
+                btnBrowse.Enabled = true;
+                pnlDropZone.AllowDrop = true;
             }
         }
 
