@@ -6,13 +6,14 @@
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
-    <ApplicationIcon></ApplicationIcon>
+    <ApplicationIcon>asset\app_icon.ico</ApplicationIcon>
     <AssemblyName>ToolCalender</AssemblyName>
     <RootNamespace>ToolCalender</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
     <!-- Đọc file PDF -->
+    <PackageReference Include="BCrypt.Net-Next" Version="4.1.0" />
     <PackageReference Include="itext7" Version="8.0.5" />
     <!-- Đọc file Word (.docx) -->
     <PackageReference Include="DocumentFormat.OpenXml" Version="3.2.0" />
@@ -20,6 +21,14 @@
     <PackageReference Include="itext7.font-asian" Version="9.6.0" />
     <!-- Lưu trữ SQLite cục bộ -->
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.4" />
+    <!-- Sửa lỗi bảo mật (vulnerability NU1903) của Newtonsoft.Json do thư viện khác kéo vào -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="asset\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

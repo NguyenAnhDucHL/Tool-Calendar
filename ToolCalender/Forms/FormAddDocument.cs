@@ -22,6 +22,7 @@ namespace ToolCalender.Forms
         private static readonly Color COkText     = Color.FromArgb(6, 95, 70);
         private static readonly Color CAlert      = Color.FromArgb(255, 237, 213);
         private static readonly Color CAlertText  = Color.FromArgb(154, 52, 18);
+        private static readonly Color CMuted      = Color.FromArgb(100, 116, 139);
 
         // ── Controls ─────────────────────────────────────────────
         private Panel      pnlDropZone   = new();
@@ -40,6 +41,8 @@ namespace ToolCalender.Forms
         private TextBox    txtChuQuan     = new();   // Cơ quan chủ quản tham mưu
         private DateTimePicker dtpThoiHan = new();
         private TextBox    txtDonViChiDao = new();
+        private List<DateTime> _extraDeadlines = new();
+        private FlowLayoutPanel pnlExtraDeadlines = new();
         private CheckBox   chkKhongThoiHan = new();
 
         private Button btnSaveCalendar = new();
@@ -184,7 +187,7 @@ namespace ToolCalender.Forms
 
             pnlDropZone = new Panel
             {
-                Height      = 90,
+                Height      = 140,
                 Dock        = DockStyle.Top,
                 BackColor   = Color.FromArgb(239, 246, 255),
                 Cursor      = Cursors.Hand,
@@ -208,25 +211,99 @@ namespace ToolCalender.Forms
                 }
             };
             pnlDropZone.DragLeave += (s, e) => pnlDropZone.BackColor = Color.FromArgb(239, 246, 255);
-            pnlDropZone.DragDrop  += (s, e) =>
-            {
-                pnlDropZone.BackColor = Color.FromArgb(239, 246, 255);
-                var files = e.Data?.GetData(DataFormats.FileDrop) as string[];
-                if (files?.Length > 0) LoadFile(files[0]);
-            };
-            pnlDropZone.Click += (s, e) => BrowseFile();
-
+            pnlDropZone.Click += (s, e) => { /* Click handled by buttons inside */ };
+            
             lblDropHint = new Label
             {
-                Text      = "📁  Kéo & thả file vào đây  hoặc  nhấp để chọn file\r\n         Định dạng hỗ trợ: PDF (.pdf)  |  Word (.docx, .doc)",
-                TextAlign = ContentAlignment.MiddleCenter,
-                Dock      = DockStyle.Fill,
+                Text      = "📁  Kéo & thả File / Thư mục vào đây  hoặc",
+                TextAlign = ContentAlignment.TopCenter,
+                Dock      = DockStyle.Top,
+                Height    = 35,
                 ForeColor = Color.FromArgb(71, 116, 185),
-                Font      = new Font("Segoe UI", 10f),
-                Cursor    = Cursors.Hand
+                Font      = new Font("Segoe UI", 11f, FontStyle.Bold),
+                Cursor    = Cursors.Hand,
+                Margin    = new Padding(0, 25, 0, 0)
             };
-            lblDropHint.Click += (s, e) => BrowseFile();
+            
+            var btnBrowseFile = new Button {
+                Text = "📂  Chọn File",
+                FlatStyle = FlatStyle.Flat,
+                AutoSize = true,
+                MinimumSize = new Size(160, 42),
+                BackColor = Color.White,
+                ForeColor = CAccent,
+                Cursor = Cursors.Hand,
+                Font = new Font("Segoe UI", 10f, FontStyle.Bold),
+                FlatAppearance = { BorderColor = CAccent },
+                Padding = new Padding(15, 0, 15, 0)
+            };
+            btnBrowseFile.Click += (s, e) => BrowseFile();
+
+            var lblOr = new Label { Text = "hoặc", AutoSize = true, Font = new Font("Segoe UI", 10f), ForeColor = CMuted, Margin = new Padding(12, 10, 12, 0) };
+
+            var btnBrowseFolder = new Button {
+                Text = "📁  Chọn Thư Mục",
+                FlatStyle = FlatStyle.Flat,
+                AutoSize = true,
+                MinimumSize = new Size(180, 42),
+                BackColor = Color.White,
+                ForeColor = Color.FromArgb(21, 128, 61),
+                Cursor = Cursors.Hand,
+                Font = new Font("Segoe UI", 10f, FontStyle.Bold),
+                FlatAppearance = { BorderColor = Color.FromArgb(21, 128, 61) },
+                Padding = new Padding(15, 0, 15, 0)
+            };
+            btnBrowseFolder.Click += (s, e) => BrowseFolder();
+
+            var pnlBtnContainer = new FlowLayoutPanel {
+                AutoSize = true,
+                FlowDirection = FlowDirection.LeftToRight,
+                Anchor = AnchorStyles.Top,
+                Dock = DockStyle.Fill,
+                Padding = new Padding(0, 5, 0, 0),
+                WrapContents = false
+            };
+            
+            // Center the buttons
+            pnlDropZone.Resize += (s, e) => {
+                pnlBtnContainer.Left = (pnlDropZone.Width - pnlBtnContainer.Width) / 2;
+                if (pnlBtnContainer.Left < 0) pnlBtnContainer.Left = 0;
+            };
+
+            pnlBtnContainer.Controls.AddRange(new Control[] { btnBrowseFile, lblOr, btnBrowseFolder });
+            
+            pnlDropZone.Controls.Add(pnlBtnContainer);
             pnlDropZone.Controls.Add(lblDropHint);
+            
+            var lblFormatHint = new Label {
+                Text = "Định dạng hỗ trợ: PDF (.pdf)  |  Word (.docx, .doc)",
+                Dock = DockStyle.Bottom,
+                Height = 22,
+                TextAlign = ContentAlignment.MiddleCenter,
+                ForeColor = CMuted,
+                Font = new Font("Segoe UI", 8.5f, FontStyle.Italic)
+            };
+            pnlDropZone.Controls.Add(lblFormatHint);
+
+            pnlDropZone.DragDrop  += async (s, e) =>
+            {
+                pnlDropZone.BackColor = Color.FromArgb(239, 246, 255);
+                var paths = e.Data?.GetData(DataFormats.FileDrop) as string[];
+                if (paths == null || paths.Length == 0) return;
+
+                string firstPath = paths[0];
+                if (Directory.Exists(firstPath))
+                {
+                    // Detect directory, pivot to batch import
+                    this.Tag = firstPath; // Marker to signal batch import to parent
+                    this.DialogResult = DialogResult.Retry; // Custom result to trigger batch in Form1
+                    this.Close();
+                }
+                else
+                {
+                    LoadFile(firstPath);
+                }
+            };
 
             lblFileName = new Label
             {
@@ -345,8 +422,42 @@ namespace ToolCalender.Forms
             grpInfo.Controls.Add(pnlTrichYeu);
             pnlTrichYeu.BringToFront();
 
-            // ── 3. Preview thông báo deadline ────────────────────
-            grpDeadline = MakeSectionPanel("🔔  BƯỚC 3: THÔNG BÁO ĐẾN HẠN");
+            // ── 3. Các mốc thời hạn bổ sung (NEW) ────────────────
+            var grpExtra = MakeSectionPanel("⏰  CÁC MỐC THỜI HẠN BỔ SUNG (Milestones)");
+            var pnlExtraTop = new Panel { Dock = DockStyle.Top, Height = 45, Padding = new Padding(0, 5, 0, 5) };
+            
+            var btnAddDate = MakeButton("➕  Thêm mốc thời gian", Color.FromArgb(51, 65, 85), Color.White);
+            btnAddDate.Size = new Size(180, 32);
+            btnAddDate.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+            btnAddDate.Location = new Point(10, 6);
+            btnAddDate.Click += (s, e) => {
+                using var dtpDlg = new Form();
+                dtpDlg.Text = "Chọn mốc thời gian bổ sung";
+                dtpDlg.Size = new Size(300, 150);
+                dtpDlg.StartPosition = FormStartPosition.CenterParent;
+                var dtp = new DateTimePicker { Format = DateTimePickerFormat.Custom, CustomFormat = "dd/MM/yyyy HH:mm", Location = new Point(20, 20), Width = 240 };
+                var btnOk = new Button { Text = "Thêm", Location = new Point(180, 60), DialogResult = DialogResult.OK };
+                dtpDlg.Controls.AddRange(new Control[] { dtp, btnOk });
+                if (dtpDlg.ShowDialog() == DialogResult.OK) {
+                    AddDeadlinePill(dtp.Value);
+                }
+            };
+            pnlExtraTop.Controls.Add(btnAddDate);
+            grpExtra.Controls.Add(pnlExtraTop);
+
+            pnlExtraDeadlines = new FlowLayoutPanel {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                FlowDirection = FlowDirection.LeftToRight,
+                Padding = new Padding(10, 0, 10, 10),
+                AutoScroll = false
+            };
+            grpExtra.Controls.Add(pnlExtraDeadlines);
+            pnlExtraDeadlines.BringToFront();
+            pnlExtraTop.BringToFront();
+
+            // ── 4. Preview thông báo deadline ────────────────────
+            grpDeadline = MakeSectionPanel("🔔  BƯỚC 4: THÔNG BÁO ĐẾN HẠN");
             grpDeadline.Visible = false;
 
             pnlDeadline = new Panel
@@ -433,15 +544,18 @@ namespace ToolCalender.Forms
 
             grpUpload.Dock   = DockStyle.Top;
             grpInfo.Dock     = DockStyle.Top;
+            grpExtra.Dock    = DockStyle.Top;
             grpDeadline.Dock = DockStyle.Top;
 
             mainStack.Controls.Add(lblStatus);
             mainStack.Controls.Add(grpDeadline);
+            mainStack.Controls.Add(grpExtra);
             mainStack.Controls.Add(grpInfo);
             mainStack.Controls.Add(grpUpload);
             
             grpUpload.BringToFront();
             grpInfo.BringToFront();
+            grpExtra.BringToFront();
             grpDeadline.BringToFront();
             lblStatus.BringToFront();
 
@@ -646,6 +760,18 @@ namespace ToolCalender.Forms
                 LoadFile(dlg.FileName);
         }
 
+        private void BrowseFolder()
+        {
+            using var fbg = new FolderBrowserDialog { Description = "Chọn thư mục chứa văn bản hành chính để nhập hàng loạt" };
+            if (fbg.ShowDialog() == DialogResult.OK)
+            {
+                // Detect directory, pivot to batch import
+                this.Tag = fbg.SelectedPath; 
+                this.DialogResult = DialogResult.Retry; 
+                this.Close();
+            }
+        }
+
         private async void LoadFile(string filePath)
         {
             _filePath = filePath;
@@ -692,6 +818,61 @@ namespace ToolCalender.Forms
                 UpdateDeadlinePreview();
             }
             if (!string.IsNullOrEmpty(r.DonViChiDao)) txtDonViChiDao.Text = r.DonViChiDao;
+            
+            // Thêm các hạn bổ sung
+            pnlExtraDeadlines.Controls.Clear();
+            _extraDeadlines.Clear();
+            if (r.AdditionalDeadlines != null)
+            {
+                foreach (var dt in r.AdditionalDeadlines)
+                {
+                    AddDeadlinePill(dt);
+                }
+            }
+        }
+
+        private void AddDeadlinePill(DateTime dt)
+        {
+            if (_extraDeadlines.Contains(dt)) return;
+            _extraDeadlines.Add(dt);
+
+            var pill = new Panel {
+                Size = new Size(200, 32),
+                BackColor = Color.FromArgb(224, 231, 242),
+                Margin = new Padding(0, 0, 8, 8)
+            };
+            pill.Paint += (s, e) => {
+                using var pen = new Pen(CBorder);
+                e.Graphics.DrawRectangle(pen, 0, 0, pill.Width - 1, pill.Height - 1);
+            };
+
+            var lbl = new Label {
+                Text = dt.ToString("dd/MM/yy HH:mm"),
+                AutoSize = false,
+                Width = 150,
+                Height = 32,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(8, 0, 0, 0),
+                Location = new Point(0, 0)
+            };
+            
+            var btnRem = new Label {
+                Text = "✕",
+                AutoSize = false,
+                Size = new Size(24, 24),
+                Location = new Point(170, 4),
+                TextAlign = ContentAlignment.MiddleCenter,
+                Cursor = Cursors.Hand,
+                ForeColor = Color.FromArgb(185, 28, 28),
+                Font = new Font("Segoe UI", 8f, FontStyle.Bold)
+            };
+            btnRem.Click += (s, e) => {
+                _extraDeadlines.Remove(dt);
+                pnlExtraDeadlines.Controls.Remove(pill);
+            };
+
+            pill.Controls.AddRange(new Control[] { lbl, btnRem });
+            pnlExtraDeadlines.Controls.Add(pill);
         }
 
         // ════════════════════════════════════════════════════════
@@ -726,7 +907,8 @@ namespace ToolCalender.Forms
                 ThoiHan        = chkKhongThoiHan.Checked ? (DateTime?)null : dtpThoiHan.Value.Date,
                 DonViChiDao    = txtDonViChiDao.Text.Trim(),
                 NgayThem       = DateTime.Now,
-                DaTaoLich      = false
+                DaTaoLich      = false,
+                AdditionalDeadlines = new List<DateTime>(_extraDeadlines)
             };
         }
 

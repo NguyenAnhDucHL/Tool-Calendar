@@ -7,6 +7,9 @@
     <Compile Update="Forms\FormAddDocument.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Update="Forms\FormBatchImport.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Update="Forms\FormConfirm.cs">
       <SubType>Form</SubType>
     </Compile>

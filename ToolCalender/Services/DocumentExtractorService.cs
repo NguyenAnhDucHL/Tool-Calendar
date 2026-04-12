@@ -149,35 +149,20 @@ namespace ToolCalender.Services
 
         // ------- Generated Regex — compile-time, zero runtime recompilation -------
 
-        [GeneratedRegex(@"[Ss]ố[:\s]*(\d+[/\-][A-ZĐÀÁẢÃẠĂẮẶẰẲẴÂẤẬẦẨẪ&\.\-/]+(?:[/\-][A-ZĐÀÁẢÃẠĂẮẶẰẲẴÂẤẬẦẨẪ]+)*)")]
+        // SoVanBan: [Số] 123 /CAT-QLHC hoặc Field_1: 123...
+        // Cho phép dấu cách giữa số và ký hiệu
+        [GeneratedRegex(@"[Ss][ốo06ô]?[:\s]*(\d{1,6})\s*([/\-]\s*[A-ZĐÀÁẢÃẠĂẮẶẰẲẴÂẤẬẦẨẪ0-9&\.\-/]+(?:[/\-][A-ZĐÀÁẢÃẠĂẮẶẰẲẴÂẤẬẦẨẪ0-9]+)*)", RegexOptions.IgnoreCase)]
         private static partial Regex RxSoVanBan();
 
         [GeneratedRegex(@"ngày\s+(\d{1,2})\s+tháng\s+(\d{1,2})\s+năm\s+(\d{4})", RegexOptions.IgnoreCase)]
         private static partial Regex RxNgayBanHanh();
 
-        // ThoiHan: trước ngày DD/MM/YYYY
-        [GeneratedRegex(@"trước ngày\s+(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})", RegexOptions.IgnoreCase)]
-        private static partial Regex RxThoiHan1();
+        // ThoiHan: hỗ trợ có hoặc không có chữ "ngày", nhiều loại phân cách (/, -, ., |, l)
+        [GeneratedRegex(@"(?:trước|đến|chậm nhất|vào)(?:\s+ngày)?\s+(\d{1,2})[\/\-\.\s\|l]+(\d{1,2})[\/\-\.\s\|l]+(\d{4})", RegexOptions.IgnoreCase)]
+        private static partial Regex RxThoiHanNew();
 
-        // ThoiHan: trước ngày NN tháng MM năm YYYY
-        [GeneratedRegex(@"trước ngày\s+(\d{1,2})\s+tháng\s+(\d{1,2})\s+năm\s+(\d{4})", RegexOptions.IgnoreCase)]
-        private static partial Regex RxThoiHan2();
-
-        // ThoiHan: chậm nhất (vào|ngày)? DD/MM/YYYY
-        [GeneratedRegex(@"chậm nhất(?:\s+(?:vào|ngày))?\s+(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})", RegexOptions.IgnoreCase)]
-        private static partial Regex RxThoiHan3();
-
-        // ThoiHan: chậm nhất (vào|ngày)? NN tháng MM năm YYYY
-        [GeneratedRegex(@"chậm nhất(?:\s+(?:vào|ngày))?\s+(\d{1,2})\s+tháng\s+(\d{1,2})\s+năm\s+(\d{4})", RegexOptions.IgnoreCase)]
-        private static partial Regex RxThoiHan4();
-
-        // ThoiHan: hạn (đến|chót|nộp) (ngày)? DD/MM/YYYY
-        [GeneratedRegex(@"hạn\s+(?:đến|chót|nộp)(?:\s+ngày)?\s+(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})", RegexOptions.IgnoreCase)]
-        private static partial Regex RxThoiHan5();
-
-        // ThoiHan: hạn (đến|chót|nộp) (ngày)? NN tháng MM năm YYYY
-        [GeneratedRegex(@"hạn\s+(?:đến|chót|nộp)(?:\s+ngày)?\s+(\d{1,2})\s+tháng\s+(\d{1,2})\s+năm\s+(\d{4})", RegexOptions.IgnoreCase)]
-        private static partial Regex RxThoiHan6();
+        [GeneratedRegex(@"(?:trước|đến|chậm nhất|vào)(?:\s+ngày)?\s+(\d{1,2})\s+tháng\s+(\d{1,2})\s+năm\s+(\d{4})", RegexOptions.IgnoreCase)]
+        private static partial Regex RxThoiHanNgayThang();
 
         [GeneratedRegex(@"Sở|UBND|Ủy ban|Phòng|Ban|Cục|Chi cục|Tổng cục", RegexOptions.IgnoreCase)]
         private static partial Regex RxCoQuan();
@@ -225,6 +210,7 @@ namespace ToolCalender.Services
 
             // ── 0. Làm sạch văn bản (Xử lý lỗi mã hóa PDF: ƣ -> ư và khoảng trắng thừa)
             string t = text.Replace("ƣ", "ư").Replace("Ƣ", "Ư");
+            t = t.Replace("\u00A0", " ").Replace("\u200B", ""); // Bỏ Non-breaking space và Zero-width space
             t = Regex.Replace(t, @"\s+", " "); // Thu gọn mọi loại khoảng trắng (kể cả khoảng trắng khổng lồ)
 
             // ── 1. Số văn bản 
@@ -233,9 +219,9 @@ namespace ToolCalender.Services
             if (vVIndex < 0) vVIndex = t.IndexOf("Về việc", StringComparison.OrdinalIgnoreCase);
             string searchArea = vVIndex > 0 ? t.Substring(0, vVIndex) : (t.Length > 1500 ? t.Substring(0, 1500) : t);
 
-            // Tìm có tiền tố (Số, S0, S6, Sô, Field...)
+            // Tìm có tiền tố (Số, S0, S6, Sô, S, Field...)
             var mSoVb = Regex.Match(searchArea,
-                @"(?:[Ss][ốo06ô]|Field_[^:]+)[:\s]*(\d{1,6})\s*([/\-]\s*[A-ZĐÀÁẢÃẠĂẮẶẰẲẴÂẤẬẦẨẪ0-9&\.\-/]+)",
+                @"(?:[Ss][ốo06ô]?|Field_[^:]+)[:\s]*(\d{1,6})\s*([/\-]\s*[A-ZĐÀÁẢÃẠĂẮẶẰẲẴÂẤẬẦẨẪ0-9&\.\-/]+(?:[/\-][A-ZĐÀÁẢÃẠĂẮẶẰẲẴÂẤẬẦẨẪ0-9]+)*)",
                 RegexOptions.IgnoreCase);
             
             if (mSoVb.Success)
@@ -244,8 +230,9 @@ namespace ToolCalender.Services
             }
             else
             {
-                // Fallback: Tìm thẳng mẫu Số/Ký hiệu (ví dụ: 1234/SNN-CNTY) mà không cần chữ "Số"
-                var mLegacy = Regex.Match(searchArea, @"(\d{1,6}\s*[/\-]\s*[A-ZĐÀÁẢÃẠĂẮẶẰẲẴÂẤẬẦẨẪ0-9&\.\-/]{2,})", RegexOptions.IgnoreCase);
+                // Fallback: Tìm thẳng mẫu Số/Ký hiệu (ví dụ: 1233/SNN-CNTY) mà không cần chữ "Số"
+                // Match regex từ test_regex.cs nhưng nới lỏng hơn
+                var mLegacy = Regex.Match(searchArea, @"(\d{1,6}\s*[/\-]\s*[A-ZĐÀÁẢÃẠĂẮẶẰẲẴÂẤẬẦẨẪ0-9&\.\-/]{2,}(?:[/\-][A-ZĐÀÁẢÃẠĂẮẶẰẲẴÂẤẬẦẨẪ0-9]+)*)", RegexOptions.IgnoreCase);
                 if (mLegacy.Success) record.SoVanBan = mLegacy.Value.Replace(" ", "").Trim();
             }
 
@@ -264,34 +251,76 @@ namespace ToolCalender.Services
                 }
             }
 
-            // ── 3. Thời hạn: Hỗ trợ cả chữ "trƣớc" (lỗi font) và "trước"
-            var deadlinePatterns = new[] {
-                @"(?:trước|trƣớc|đến|hạn|xong|trình)\s+ngày\s*(\d{1,2})\s*[\/\-\.\s]\s*(\d{1,2})\s*[\/\-\.\s]\s*(\d{4})",
-                @"(?:trước|trƣớc|đến|hạn|xong|trình)\s+ngày\s*(\d{1,2})\s+tháng\s*(\d{1,2})\s+năm\s*(\d{4})"
-            };
+            // ── 3. Thời hạn (Deadline): Hỗ trợ nhiều mốc, có giờ/phút, chọn mốc sớm nhất
+            var deadlineTimes = new List<DateTime>();
+            
+            // Pattern hỗ trợ: "trước 9h00, ngày 12/4/2026", "trước 8h30' ngày 13/4/2026", "ngày 15/04/2026", v.v.
+            var keywords = @"(?:trước|trƣớc|đến|hạn|xong|trình|chót|cuối|nhận|gửi|báo cáo|thực hiện|xử lý|hoàn thành|thời gian|chậm nhất|vào ngày|trả kết quả|trả lời)";
+            var patternFull = keywords + @"\s+.*?(\d{1,2})h(\d{0,2})'?.+?(?:ngày)?\s*(\d{1,2})\s*[/\-\.\s\|l]\s*(\d{1,2})\s*[/\-\.\s\|l]\s*(\d{4})";
+            var patternNoTime = keywords + @"\s+.*?(?:ngày)?\s*(\d{1,2})\s*[/\-\.\s\|l]\s*(\d{1,2})\s*[/\-\.\s\|l]\s*(\d{4})";
+            
+            var patternNgayThangFull = keywords + @"\s+.*?(\d{1,2})h(\d{0,2})'?.+?(?:ngày)?\s*(\d{1,2})\s+tháng\s*(\d{1,2})\s+năm\s*(\d{4})";
+            var patternNgayThangNoTime = keywords + @"\s+.*?(?:ngày)?\s*(\d{1,2})\s+tháng\s*(\d{1,2})\s+năm\s*(\d{4})";
+            
+            var matches1 = Regex.Matches(t, patternFull, RegexOptions.IgnoreCase);
+            var matches2 = Regex.Matches(t, patternNoTime, RegexOptions.IgnoreCase);
+            var matches3 = Regex.Matches(t, patternNgayThangFull, RegexOptions.IgnoreCase);
+            var matches4 = Regex.Matches(t, patternNgayThangNoTime, RegexOptions.IgnoreCase);
 
-            foreach (var pattern in deadlinePatterns)
+            void AddToDeadlineList(MatchCollection matches, bool hasTime)
             {
-                var match = Regex.Match(t, pattern, RegexOptions.IgnoreCase);
-                if (match.Success)
+                foreach (Match match in matches)
                 {
-                    if (int.TryParse(match.Groups[1].Value, out int d) &&
-                        int.TryParse(match.Groups[2].Value, out int mo) &&
-                        int.TryParse(match.Groups[3].Value, out int yr))
+                    int dIdx = hasTime ? 3 : 1;
+                    int mIdx = hasTime ? 4 : 2;
+                    int yIdx = hasTime ? 5 : 3;
+
+                    if (int.TryParse(match.Groups[dIdx].Value, out int d) &&
+                        int.TryParse(match.Groups[mIdx].Value, out int mo) &&
+                        int.TryParse(match.Groups[yIdx].Value, out int yr))
                     {
-                        try { record.ThoiHan = new DateTime(yr, mo, d); break; } catch { }
+                        try 
+                        {
+                            int hr = 0, min = 0;
+                            if (hasTime)
+                            {
+                                if (match.Groups[1].Success) int.TryParse(match.Groups[1].Value, out hr);
+                                if (match.Groups[2].Success) int.TryParse(match.Groups[2].Value, out min);
+                            }
+                            
+                            deadlineTimes.Add(new DateTime(yr, mo, d, hr, min, 0)); 
+                        } 
+                        catch { }
                     }
                 }
             }
 
-            // Nếu vẫn không thấy hạn, tìm ngày lớn nhất
-            if (record.ThoiHan == DateTime.MinValue && record.NgayBanHanh.HasValue)
+            AddToDeadlineList(matches1, true);
+            AddToDeadlineList(matches2, false);
+            AddToDeadlineList(matches3, true);
+            AddToDeadlineList(matches4, false);
+
+            if (deadlineTimes.Count > 0)
             {
-                var allDates = Regex.Matches(t, @"(\d{1,2})\s*[\/\-\.]\s*(\d{1,2})\s*[\/\-\.]\s*(\d{4})");
+                var sorted = deadlineTimes.OrderBy(x => x).Distinct().ToList();
+                // Chọn mốc sớm nhất làm thời hạn chính
+                record.ThoiHan = sorted[0];
+
+                // Lưu các mốc còn lại vào danh sách phụ
+                if (sorted.Count > 1)
+                {
+                    record.AdditionalDeadlines = sorted.Skip(1).ToList();
+                }
+            }
+            else if (record.NgayBanHanh.HasValue)
+            {
+                // Fallback: Tìm các ngày lớn nhất (như cũ)
+                var allDates = Regex.Matches(t, @"(\d{1,2})\s*[/\-\.\s\|l]\s*(\d{1,2})\s*[/\-\.\s\|l]\s*(\d{4})");
                 DateTime maxD = record.NgayBanHanh.Value;
                 foreach (Match m in allDates)
                 {
-                    if (DateTime.TryParseExact(m.Value.Replace(" ", ""), new[] { "d/M/yyyy", "dd/MM/yyyy" }, null, System.Globalization.DateTimeStyles.None, out var d))
+                    string dStr = m.Value.Replace(" ", "").Replace("|", "/").Replace("l", "/");
+                    if (DateTime.TryParseExact(dStr, new[] { "d/M/yyyy", "dd/MM/yyyy" }, null, System.Globalization.DateTimeStyles.None, out var d))
                     {
                         if (d > maxD) maxD = d;
                     }

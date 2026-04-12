@@ -33,7 +33,8 @@ namespace ToolCalender.Data
                     FilePath TEXT,
                     NgayThem TEXT,
                     DaTaoLich INTEGER DEFAULT 0,
-                    UploadedByUserId INTEGER DEFAULT 1
+                    UploadedByUserId INTEGER DEFAULT 1,
+                    AllDeadlines TEXT
                 )";
 
             string createUsersTable = @"
@@ -59,23 +60,31 @@ namespace ToolCalender.Data
             using var cmd = new SqliteCommand(createDocumentsTable, connection);
             cmd.ExecuteNonQuery();
 
+            // Migration: Thêm cột AllDeadlines nếu chưa có (Dành cho DB cũ)
+            try {
+                cmd.CommandText = "ALTER TABLE Documents ADD COLUMN AllDeadlines TEXT";
+                cmd.ExecuteNonQuery();
+            } catch { /* Cột đã tồn tại */ }
+
             cmd.CommandText = createUsersTable;
             cmd.ExecuteNonQuery();
 
             cmd.CommandText = createCommentsTable;
             cmd.ExecuteNonQuery();
 
-            // Đảm bảo tài khoản admin luôn đúng mật khẩu admin@123456
+            // Đảm bảo tài khoản admin luôn tồn tại và đúng mật khẩu mặc định (đã băm an toàn)
             cmd.CommandText = "SELECT COUNT(*) FROM Users WHERE Username='admin'";
             if (Convert.ToInt32(cmd.ExecuteScalar()) == 0)
             {
-                cmd.CommandText = "INSERT INTO Users (Username, PasswordHash, Role, CreatedAt) VALUES ('admin', 'admin@123456', 'Admin', datetime('now'))";
+                string adminHash = BCrypt.Net.BCrypt.HashPassword("admin@123456");
+                cmd.CommandText = $"INSERT INTO Users (Username, PasswordHash, Role, CreatedAt) VALUES ('admin', '{adminHash}', 'Admin', datetime('now'))";
                 cmd.ExecuteNonQuery();
             }
             else
             {
-                // Nếu đã có admin, ép cập nhật mật khẩu mới cho chắc chắn
-                cmd.CommandText = "UPDATE Users SET PasswordHash='admin@123456' WHERE Username='admin'";
+                // Để đảm bảo đăng nhập được sau bản cập nhật này, nếu đã có user admin thì ép reset lại password hash này
+                string adminHash = BCrypt.Net.BCrypt.HashPassword("admin@123456");
+                cmd.CommandText = $"UPDATE Users SET PasswordHash='{adminHash}' WHERE Username='admin'";
                 cmd.ExecuteNonQuery();
             }
         }
@@ -83,9 +92,9 @@ namespace ToolCalender.Data
         // --- USER MANAGEMENT ---
         /// <summary>
         /// Đăng nhập an toàn.
-        /// ✅ Chống SQL Injection: Dùng parameterized query (@u, @p) — KHÔNG nối chuỗi trực tiếp vào SQL.
-        /// ✅ Chống DoS: Giới hạn độ dài input từ phía UI (FormLogin) trước khi gọi hàm này.
-        /// ⚠ Nâng cấp tiếp theo: Thay thế plain-text bằng BCrypt.Net-Next để băm mật khẩu.
+        /// ✅ Chống SQL Injection: Dùng parameterized query (@u).
+        /// ✅ Chống DoS: Giới hạn độ dài input theo chuẩn BCrypt (tối đa 72 byte cho mật khẩu).
+        /// ✅ Mã hóa: Đã áp dụng BCrypt.Net-Next khớp chuỗi Hash (chuẩn bảo mật doanh nghiệp).
         /// </summary>
         public static User? Login(string username, string password)
         {
@@ -94,28 +103,70 @@ namespace ToolCalender.Data
                 return null;
 
             // Giới hạn độ dài tránh bị lợi dụng
-            if (username.Length > 50 || password.Length > 200)
+            if (username.Length > 50 || password.Length > 72)
                 return null;
 
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
 
-            // ✅ Parameterized query — hoàn toàn an toàn với SQL Injection
-            string sql = "SELECT Id, Username, Role FROM Users WHERE Username=@u AND PasswordHash=@p LIMIT 1";
+            string sql = "SELECT Id, Username, Role, PasswordHash FROM Users WHERE Username=@u LIMIT 1";
             using var cmd = new SqliteCommand(sql, connection);
             cmd.Parameters.AddWithValue("@u", username.Trim());
-            // Ghi chú: Hiện đang so sánh plain-text.
-            // TODO: Nâng cấp lên BCrypt: BCrypt.Net.BCrypt.Verify(password, storedHash)
-            cmd.Parameters.AddWithValue("@p", password);
 
-            using var reader = cmd.ExecuteReader();
-            if (reader.Read())
+            int userId = -1;
+            string dbUser = "";
+            string dbRole = "";
+            string storedHash = "";
+            bool found = false;
+
+            using (var reader = cmd.ExecuteReader())
+            {
+                if (reader.Read())
+                {
+                    userId = Convert.ToInt32(reader["Id"]);
+                    dbUser = reader["Username"].ToString() ?? "";
+                    dbRole = reader["Role"].ToString() ?? "Guest";
+                    storedHash = reader["PasswordHash"]?.ToString() ?? "";
+                    found = true;
+                }
+            }
+
+            if (!found) return null;
+
+            bool isValid = false;
+
+            // Kiểm tra xem Hash trong DB có định dạng chuẩn BCrypt không (bắt đầu bằng $2a$, $2b$, $2y$, $2x$)
+            if (storedHash.StartsWith("$2"))
+            {
+                try 
+                { 
+                    isValid = BCrypt.Net.BCrypt.Verify(password, storedHash); 
+                } 
+                catch { /* Lỗi định dạng hash */ }
+            }
+            else
+            {
+                // Fallback: Mật khẩu tại DB đang là plain-text chưa được mã hóa trước đó
+                if (password == storedHash)
+                {
+                    isValid = true;
+                    // 👉 Tự động cập nhật (Migrate) mật khẩu lên chuẩn BCrypt ngay lập tức
+                    string newHash = BCrypt.Net.BCrypt.HashPassword(password);
+                    string upSql = "UPDATE Users SET PasswordHash=@ph WHERE Id=@id";
+                    using var upCmd = new SqliteCommand(upSql, connection);
+                    upCmd.Parameters.AddWithValue("@ph", newHash);
+                    upCmd.Parameters.AddWithValue("@id", userId);
+                    upCmd.ExecuteNonQuery();
+                }
+            }
+
+            if (isValid)
             {
                 return new User
                 {
-                    Id       = Convert.ToInt32(reader["Id"]),
-                    Username = reader["Username"].ToString() ?? "",
-                    Role     = reader["Role"].ToString() ?? "Guest"
+                    Id       = userId,
+                    Username = dbUser,
+                    Role     = dbRole
                 };
             }
             return null;
@@ -129,7 +180,7 @@ namespace ToolCalender.Data
                 string sql = "INSERT INTO Users (Username, PasswordHash, Role, CreatedAt) VALUES (@u, @p, @r, datetime('now'))";
                 using var cmd = new SqliteCommand(sql, connection);
                 cmd.Parameters.AddWithValue("@u", username);
-                cmd.Parameters.AddWithValue("@p", password);
+                cmd.Parameters.AddWithValue("@p", BCrypt.Net.BCrypt.HashPassword(password));
                 cmd.Parameters.AddWithValue("@r", role);
                 cmd.ExecuteNonQuery();
                 return true;
@@ -195,8 +246,8 @@ namespace ToolCalender.Data
             connection.Open();
 
             string sql = @"
-                INSERT INTO Documents (SoVanBan, TrichYeu, NgayBanHanh, CoQuanBanHanh, CoQuanChuQuan, ThoiHan, DonViChiDao, FilePath, NgayThem, DaTaoLich)
-                VALUES (@SoVanBan, @TrichYeu, @NgayBanHanh, @CoQuanBanHanh, @CoQuanChuQuan, @ThoiHan, @DonViChiDao, @FilePath, @NgayThem, @DaTaoLich);
+                INSERT INTO Documents (SoVanBan, TrichYeu, NgayBanHanh, CoQuanBanHanh, CoQuanChuQuan, ThoiHan, DonViChiDao, FilePath, NgayThem, DaTaoLich, AllDeadlines)
+                VALUES (@SoVanBan, @TrichYeu, @NgayBanHanh, @CoQuanBanHanh, @CoQuanChuQuan, @ThoiHan, @DonViChiDao, @FilePath, @NgayThem, @DaTaoLich, @AllDeadlines);
                 SELECT last_insert_rowid();";
 
             using var cmd = new SqliteCommand(sql, connection);
@@ -214,7 +265,7 @@ namespace ToolCalender.Data
                     SoVanBan=@SoVanBan, TrichYeu=@TrichYeu, NgayBanHanh=@NgayBanHanh,
                     CoQuanBanHanh=@CoQuanBanHanh, CoQuanChuQuan=@CoQuanChuQuan,
                     ThoiHan=@ThoiHan, DonViChiDao=@DonViChiDao,
-                    FilePath=@FilePath, DaTaoLich=@DaTaoLich
+                    FilePath=@FilePath, DaTaoLich=@DaTaoLich, AllDeadlines=@AllDeadlines
                 WHERE Id=@Id";
 
             using var cmd = new SqliteCommand(sql, connection);
@@ -227,9 +278,15 @@ namespace ToolCalender.Data
         {
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
-            using var cmd = new SqliteCommand("DELETE FROM Documents WHERE Id=@Id", connection);
-            cmd.Parameters.AddWithValue("@Id", id);
-            cmd.ExecuteNonQuery();
+
+            // Xóa dữ liệu liên kết trước (bình luận) để tránh lỗi Foreign Key Constraint
+            using var cmd1 = new SqliteCommand("DELETE FROM Comments WHERE DocumentId=@Id", connection);
+            cmd1.Parameters.AddWithValue("@Id", id);
+            cmd1.ExecuteNonQuery();
+
+            using var cmd2 = new SqliteCommand("DELETE FROM Documents WHERE Id=@Id", connection);
+            cmd2.Parameters.AddWithValue("@Id", id);
+            cmd2.ExecuteNonQuery();
         }
 
         private static void AddParams(SqliteCommand cmd, DocumentRecord r)
@@ -244,6 +301,12 @@ namespace ToolCalender.Data
             cmd.Parameters.AddWithValue("@FilePath", (object?)r.FilePath ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@NgayThem", r.NgayThem.ToString("yyyy-MM-dd HH:mm:ss"));
             cmd.Parameters.AddWithValue("@DaTaoLich", r.DaTaoLich ? 1 : 0);
+            
+            // Serialize danh sách ngày phụ thành chuỗi (Phân cách bằng dấu phẩy)
+            string ad = r.AdditionalDeadlines != null && r.AdditionalDeadlines.Count > 0
+                ? string.Join(",", r.AdditionalDeadlines.Select(x => x.ToString("yyyy-MM-dd HH:mm:ss")))
+                : "";
+            cmd.Parameters.AddWithValue("@AllDeadlines", ad);
         }
 
         private static DocumentRecord MapRecord(SqliteDataReader r)
@@ -260,8 +323,21 @@ namespace ToolCalender.Data
                 DonViChiDao = r["DonViChiDao"]?.ToString() ?? "",
                 FilePath = r["FilePath"]?.ToString() ?? "",
                 NgayThem = TryParseDate(r["NgayThem"]?.ToString()) ?? DateTime.Now,
-                DaTaoLich = Convert.ToInt32(r["DaTaoLich"]) == 1
+                DaTaoLich = Convert.ToInt32(r["DaTaoLich"]) == 1,
+                AdditionalDeadlines = ParseDeadlines(r["AllDeadlines"]?.ToString())
             };
+        }
+
+        private static List<DateTime> ParseDeadlines(string? value)
+        {
+            var list = new List<DateTime>();
+            if (string.IsNullOrEmpty(value)) return list;
+            var parts = value.Split(',', StringSplitOptions.RemoveEmptyEntries);
+            foreach (var p in parts)
+            {
+                if (DateTime.TryParse(p, out DateTime dt)) list.Add(dt);
+            }
+            return list;
         }
 
         private static DateTime? TryParseDate(string? value)

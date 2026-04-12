@@ -15,22 +15,30 @@ namespace ToolCalender.Services
             if (record.ThoiHan == null)
                 throw new InvalidOperationException("Văn bản không có thời hạn. Vui lòng nhập thời hạn trước.");
 
+            var allDates = new List<DateTime> { record.ThoiHan.Value };
+            if (record.AdditionalDeadlines != null)
+                allDates.AddRange(record.AdditionalDeadlines);
+
             string soVb = record.SoVanBan ?? "Văn bản";
             string desc = BuildDescription(record);
 
             var events = new StringBuilder();
-            events.Append(BuildEvent(
-                $"⚠ HẾT HẠN: {soVb}",
-                desc, record.ThoiHan.Value));
 
-            if (record.ThoiHan.Value > DateTime.Today.AddDays(7))
-                events.Append(BuildEvent($"[Nhắc 7 ngày] {soVb}", desc, record.ThoiHan.Value.AddDays(-7)));
+            foreach (var dt in allDates)
+            {
+                // Sự kiện chính
+                events.Append(BuildEvent($"⚠ HẾT HẠN: {soVb}", desc, dt));
 
-            if (record.ThoiHan.Value > DateTime.Today.AddDays(3))
-                events.Append(BuildEvent($"[Nhắc 3 ngày] {soVb}", desc, record.ThoiHan.Value.AddDays(-3)));
+                // Nhắc nhở theo logic có sẵn (7, 3, 1 ngày)
+                if (dt.Date > DateTime.Today.AddDays(7))
+                    events.Append(BuildEvent($"[Nhắc 7 ngày] {soVb}", desc, dt.AddDays(-7)));
 
-            if (record.ThoiHan.Value > DateTime.Today.AddDays(1))
-                events.Append(BuildEvent($"[Nhắc 1 ngày] {soVb}", desc, record.ThoiHan.Value.AddDays(-1)));
+                if (dt.Date > DateTime.Today.AddDays(3))
+                    events.Append(BuildEvent($"[Nhắc 3 ngày] {soVb}", desc, dt.AddDays(-3)));
+
+                if (dt.Date > DateTime.Today.AddDays(1))
+                    events.Append(BuildEvent($"[Nhắc 1 ngày] {soVb}", desc, dt.AddDays(-1)));
+            }
 
             string icsContent =
                 "BEGIN:VCALENDAR\r\n" +
@@ -57,22 +65,49 @@ namespace ToolCalender.Services
         {
             string uid = Guid.NewGuid().ToString("N").ToUpper();
             string dtStamp = DateTime.UtcNow.ToString("yyyyMMddTHHmmssZ");
-            string dtStart = date.ToString("yyyyMMdd");
-            string dtEnd = date.AddDays(1).ToString("yyyyMMdd");
+            
+            // Nếu có giờ/phút (không phải là 0h00), tạo sự kiện có mốc giờ cụ thể
+            bool hasTime = (date.Hour != 0 || date.Minute != 0);
+            string dtStart, dtEnd;
 
-            return "BEGIN:VEVENT\r\n" +
-                   $"UID:{uid}@toolcalender\r\n" +
-                   $"DTSTAMP:{dtStamp}\r\n" +
-                   $"DTSTART;VALUE=DATE:{dtStart}\r\n" +
-                   $"DTEND;VALUE=DATE:{dtEnd}\r\n" +
-                   $"SUMMARY:{Escape(summary)}\r\n" +
-                   $"DESCRIPTION:{Escape(description)}\r\n" +
-                   "BEGIN:VALARM\r\n" +
-                   "TRIGGER:-PT0S\r\n" +
-                   "ACTION:DISPLAY\r\n" +
-                   $"DESCRIPTION:{Escape(summary)}\r\n" +
-                   "END:VALARM\r\n" +
-                   "END:VEVENT\r\n";
+            if (hasTime)
+            {
+                dtStart = date.ToString("yyyyMMddTHHmmss");
+                dtEnd = date.AddHours(1).ToString("yyyyMMddTHHmmss"); // Mặc định thời lượng 1 tiếng
+                
+                return "BEGIN:VEVENT\r\n" +
+                       $"UID:{uid}@toolcalender\r\n" +
+                       $"DTSTAMP:{dtStamp}\r\n" +
+                       $"DTSTART:{dtStart}\r\n" +
+                       $"DTEND:{dtEnd}\r\n" +
+                       $"SUMMARY:{Escape(summary)}\r\n" +
+                       $"DESCRIPTION:{Escape(description)}\r\n" +
+                       "BEGIN:VALARM\r\n" +
+                       "TRIGGER:-PT15M\r\n" + // Nhắc trước 15 phút
+                       "ACTION:DISPLAY\r\n" +
+                       $"DESCRIPTION:{Escape(summary)}\r\n" +
+                       "END:VALARM\r\n" +
+                       "END:VEVENT\r\n";
+            }
+            else
+            {
+                dtStart = date.ToString("yyyyMMdd");
+                dtEnd = date.AddDays(1).ToString("yyyyMMdd");
+                
+                return "BEGIN:VEVENT\r\n" +
+                       $"UID:{uid}@toolcalender\r\n" +
+                       $"DTSTAMP:{dtStamp}\r\n" +
+                       $"DTSTART;VALUE=DATE:{dtStart}\r\n" +
+                       $"DTEND;VALUE=DATE:{dtEnd}\r\n" +
+                       $"SUMMARY:{Escape(summary)}\r\n" +
+                       $"DESCRIPTION:{Escape(description)}\r\n" +
+                       "BEGIN:VALARM\r\n" +
+                       "TRIGGER:-PT0S\r\n" +
+                       "ACTION:DISPLAY\r\n" +
+                       $"DESCRIPTION:{Escape(summary)}\r\n" +
+                       "END:VALARM\r\n" +
+                       "END:VEVENT\r\n";
+            }
         }
 
         private static string BuildDescription(DocumentRecord r)

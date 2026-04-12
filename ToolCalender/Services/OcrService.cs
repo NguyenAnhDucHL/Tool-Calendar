@@ -21,43 +21,34 @@ namespace ToolCalender.Services
                 PdfDocument pdfDoc = await PdfDocument.LoadFromFileAsync(file);
                 if (pdfDoc.PageCount == 0) return string.Empty;
 
-                // Chỉ quét trang 1 (thường chứa đủ thông tin Header) để đảm bảo tốc độ
-                PdfPage page = pdfDoc.GetPage(0);
-                
-                using (var stream = new InMemoryRandomAccessStream())
+                // Khởi tạo bộ máy OCR (Ưu tiên tiếng Việt)
+                var language = new Windows.Globalization.Language("vi-VN");
+                OcrEngine ocrEngine = OcrEngine.IsLanguageSupported(language) 
+                    ? OcrEngine.TryCreateFromLanguage(language) 
+                    : OcrEngine.TryCreateFromUserProfileLanguages();
+
+                if (ocrEngine == null) return "[OCR Error]: No OCR Engine available.";
+
+                for (uint i = 0; i < pdfDoc.PageCount; i++)
                 {
-                    // 2. Render trang PDF thành hình ảnh trong bộ nhớ (DPI cao để OCR chuẩn)
-                    var options = new PdfPageRenderOptions { DestinationWidth = 2048 }; 
-                    await page.RenderToStreamAsync(stream, options);
-
-                    // 3. Khởi tạo bộ giải mã hình ảnh
-                    BitmapDecoder decoder = await BitmapDecoder.CreateAsync(stream);
-                    using (SoftwareBitmap softwareBitmap = await decoder.GetSoftwareBitmapAsync())
+                    using (PdfPage page = pdfDoc.GetPage(i))
+                    using (var stream = new InMemoryRandomAccessStream())
                     {
-                        // 4. Khởi tạo bộ máy OCR (Ưu tiên tiếng Việt)
-                        OcrEngine ocrEngine;
-                        var language = new Windows.Globalization.Language("vi-VN");
-                        
-                        if (OcrEngine.IsLanguageSupported(language))
-                        {
-                            ocrEngine = OcrEngine.TryCreateFromLanguage(language);
-                        }
-                        else
-                        {
-                            // Fallback về ngôn ngữ hệ thống nếu chưa cài gói tiếng Việt
-                            ocrEngine = OcrEngine.TryCreateFromUserProfileLanguages();
-                        }
+                        // Render trang PDF thành hình ảnh (DPI cao để OCR chuẩn)
+                        var options = new PdfPageRenderOptions { DestinationWidth = 2048 }; 
+                        await page.RenderToStreamAsync(stream, options);
 
-                        if (ocrEngine != null)
+                        BitmapDecoder decoder = await BitmapDecoder.CreateAsync(stream);
+                        using (SoftwareBitmap softwareBitmap = await decoder.GetSoftwareBitmapAsync())
                         {
-                            // 5. Thực hiện nhận diện
                             var result = await ocrEngine.RecognizeAsync(softwareBitmap);
-                            sb.AppendLine(result.Text);
+                            if (result != null)
+                            {
+                                sb.AppendLine(result.Text);
+                            }
                         }
                     }
                 }
-                
-                page.Dispose(); // PdfPage thường có Dispose hoặc Close
             }
             catch (Exception ex)
             {

@@ -49,17 +49,20 @@ namespace ToolCalender.Forms
         private Button btnClose          = new();
         
         // ── Comment Controls ──────────────────────────────────
-        private FlowLayoutPanel pnlCommentsList = new();
+        private TableLayoutPanel pnlCommentsList = new();
         private TextBox txtCommentInput = new();
         private Button btnSendComment = new();
 
         private readonly DocumentRecord _original;
         public DocumentRecord? UpdatedRecord { get; private set; }
+        
+        private TableLayoutPanel pnlAdditionalDeadlines = new();
 
         // ════════════════════════════════════════════════════════
         public FormDetail(DocumentRecord doc)
         {
             _original = doc;
+            try { this.Icon = new Icon(@"asset\app_icon.ico"); } catch { }
             BuildUI();
             PopulateFields(doc);
             ApplyPermissions();
@@ -78,14 +81,14 @@ namespace ToolCalender.Forms
             this.StartPosition   = FormStartPosition.CenterParent;
             this.BackColor       = CBg;
             this.Font            = new Font("Segoe UI", 9.5f);
-            this.FormBorderStyle = FormBorderStyle.FixedDialog;
-            this.MaximizeBox     = false;
+            this.FormBorderStyle = FormBorderStyle.Sizable;
+            this.MaximizeBox     = true;
 
             // ── Header ──────────────────────────────────────────
             var pnlHeader = new Panel
             {
                 Dock      = DockStyle.Top,
-                Height    = 76,
+                Height    = 85,
                 BackColor = CHeader
             };
             pnlHeader.Paint += (s, e) =>
@@ -94,22 +97,30 @@ namespace ToolCalender.Forms
                 e.Graphics.DrawLine(pen, 0, pnlHeader.Height - 3, pnlHeader.Width, pnlHeader.Height - 3);
             };
 
+            var picLogo = new PictureBox
+            {
+                Image    = Image.FromFile(@"asset\app_logo.png"),
+                SizeMode = PictureBoxSizeMode.Zoom,
+                Size     = new Size(42, 42),
+                Location = new Point(20, 12)
+            };
+
             var lblTitle = new Label
             {
-                Text      = "📋  CHI TIẾT VĂN BẢN",
+                Text      = "CHI TIẾT VĂN BẢN",
                 ForeColor = Color.White,
                 Font      = new Font("Segoe UI", 15f, FontStyle.Bold),
                 AutoSize  = true,
-                Location  = new Point(20, 10)
+                Location  = new Point(70, 10)
             };
             lblNgayThem = new Label
             {
                 ForeColor = Color.FromArgb(147, 197, 253),
                 Font      = new Font("Segoe UI", 8.5f, FontStyle.Italic),
                 AutoSize  = true,
-                Location  = new Point(22, 40)
+                Location  = new Point(72, 46)
             };
-            pnlHeader.Controls.AddRange(new Control[] { lblTitle, lblNgayThem });
+            pnlHeader.Controls.AddRange(new Control[] { picLogo, lblTitle, lblNgayThem });
 
             // ── Bottom Buttons ──────────────────────────────────
             var pnlButtons = new Panel
@@ -152,22 +163,24 @@ namespace ToolCalender.Forms
             var pnlScroll = new Panel
             {
                 Dock       = DockStyle.Fill,
-                AutoScroll = true,
-                Padding    = new Padding(20, 14, 20, 10)
+                AutoScroll = true
             };
 
-            var mainStack = new FlowLayoutPanel
+            var mainStack = new TableLayoutPanel
             {
-                FlowDirection = FlowDirection.TopDown,
-                WrapContents  = false,
-                AutoSize      = true,
-                Padding       = new Padding(0)
+                Dock       = DockStyle.Top,
+                AutoSize   = true,
+                ColumnCount = 1,
+                RowCount    = 4,
+                Padding    = new Padding(20, 14, 20, 10),
+                BackColor  = Color.Transparent
             };
+            mainStack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
 
             // ── Section 1: Deadline Banner ───────────────────────
             pnlDeadlineBanner = new Panel
             {
-                Width     = 780,
+                Dock      = DockStyle.Top,
                 Height    = 80,
                 Padding   = new Padding(16, 10, 16, 10),
                 Margin    = new Padding(0, 0, 0, 12)
@@ -184,15 +197,17 @@ namespace ToolCalender.Forms
                 TextAlign = ContentAlignment.MiddleLeft
             };
             pnlDeadlineBanner.Controls.Add(lblDeadlineBanner);
+            mainStack.Controls.Add(pnlDeadlineBanner, 0, 0);
 
             // ── Section 2: Thông tin chính ───────────────────────
-            var grpInfo = MakeSectionBox("📝  THÔNG TIN VĂN BẢN", 780);
+            var grpInfo = MakeSectionBox("📝  THÔNG TIN VĂN BẢN");
+            mainStack.Controls.Add(grpInfo, 0, 1);
 
             var tbl = new TableLayoutPanel
             {
                 ColumnCount = 4,
+                Dock        = DockStyle.Top,
                 AutoSize    = true,
-                Width       = 740,
                 Padding     = new Padding(0, 6, 0, 4)
             };
             tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190f));
@@ -201,173 +216,74 @@ namespace ToolCalender.Forms
             tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,  50f));
 
             int r = 0;
-            // Row 0
             AddRow(tbl, r, 0, "Số văn bản  (*)",   txtSoVanBan = MakeTxt());
             AddRow(tbl, r, 2, "Ngày ban hành",      dtpNgayBanHanh = MakeDtp());
             r++;
-
-            // Row 1
             AddRow(tbl, r, 0, "Cơ quan ban hành",  txtCoQuanBH = MakeTxt());
             AddRow(tbl, r, 2, "Cơ quan chủ quản tham mưu  (*)", txtChuQuan = MakeTxt());
             r++;
-
-            // Row 2: Thời hạn
             AddRow(tbl, r, 0, "Thời hạn / Ngày đến hạn  (*)", dtpThoiHan = MakeDtp());
             dtpThoiHan.ValueChanged += (s, e) => UpdateDeadlineBanner();
             AddRow(tbl, r, 2, "Đơn vị được chỉ đạo", txtDonViChiDao = MakeTxt());
             r++;
 
-            // Row 3: checkboxes
-            chkKhongThoiHan = new CheckBox
-            {
-                Text      = "Không có thời hạn cụ thể",
-                ForeColor = CMuted,
-                Font      = new Font("Segoe UI", 9f, FontStyle.Italic),
-                AutoSize  = true,
-                Margin    = new Padding(0, 2, 0, 4)
-            };
-            chkKhongThoiHan.CheckedChanged += (s, e) =>
-            {
-                dtpThoiHan.Enabled          = !chkKhongThoiHan.Checked;
-                pnlDeadlineBanner.Visible   = !chkKhongThoiHan.Checked;
-                if (!chkKhongThoiHan.Checked) UpdateDeadlineBanner();
-            };
-            chkDaTaoLich = new CheckBox
-            {
-                Text      = "Đã tạo lịch Calendar",
-                ForeColor = CMuted,
-                Font      = new Font("Segoe UI", 9f),
-                AutoSize  = true,
-                Margin    = new Padding(0, 2, 0, 4)
-            };
+            chkKhongThoiHan = new CheckBox { Text = "Không có thời hạn cụ thể", ForeColor = CMuted, Font = new Font("Segoe UI", 9f, FontStyle.Italic), AutoSize = true };
+            chkKhongThoiHan.CheckedChanged += (s, e) => { dtpThoiHan.Enabled = !chkKhongThoiHan.Checked; pnlDeadlineBanner.Visible = !chkKhongThoiHan.Checked; if (!chkKhongThoiHan.Checked) UpdateDeadlineBanner(); };
+            chkDaTaoLich = new CheckBox { Text = "Đã tạo lịch Calendar", ForeColor = CMuted, Font = new Font("Segoe UI", 9f), AutoSize = true };
             tbl.Controls.Add(chkKhongThoiHan, 1, r);
             tbl.Controls.Add(chkDaTaoLich, 3, r);
             r++;
-
-            // Row 4: Spacer
             r++;
 
-            grpInfo.Controls.Add(tbl);
-
-            // ── Trích yếu (Full Width outside table) ────────────
-            var pnlTrichYeu = new Panel
-            {
-                Dock    = DockStyle.Top,
-                Height  = 160,
-                Padding = new Padding(10, 5, 5, 0)
-            };
-            var lblTrichYeuTitle = new Label
-            {
-                Text      = "Trích yếu / Nội dung chính của văn bản:",
-                ForeColor = CLabel,
-                Font      = new Font("Segoe UI", 9f, FontStyle.Bold),
-                Dock      = DockStyle.Top,
-                Height    = 22
-            };
-            txtTrichYeu = new TextBox
-            {
-                Multiline     = true,
-                AcceptsReturn = true,
-                Dock          = DockStyle.Fill,
-                BorderStyle   = BorderStyle.FixedSingle,
-                BackColor     = CCard,
-                ForeColor     = CLabel,
-                Font          = new Font("Segoe UI", 10f),
-                ScrollBars    = ScrollBars.Vertical
-            };
+            var pnlTrichYeu = new Panel { Dock = DockStyle.Top, Height = 160, Padding = new Padding(0, 5, 0, 0), Margin = new Padding(0, 0, 0, 5) };
+            var lblTrichYeuTitle = new Label { Text = "Trích yếu / Nội dung chính của văn bản:", ForeColor = CLabel, Font = new Font("Segoe UI", 9f, FontStyle.Bold), Dock = DockStyle.Top, Height = 22 };
+            txtTrichYeu = new TextBox { Multiline = true, AcceptsReturn = true, Dock = DockStyle.Fill, BorderStyle = BorderStyle.FixedSingle, BackColor = CCard, ForeColor = CLabel, Font = new Font("Segoe UI", 10f), ScrollBars = ScrollBars.Vertical };
             pnlTrichYeu.Controls.Add(txtTrichYeu);
             pnlTrichYeu.Controls.Add(lblTrichYeuTitle);
-
-            grpInfo.Controls.Add(pnlTrichYeu);
-            pnlTrichYeu.BringToFront();
-            tbl.BringToFront(); // Table stays at top
+            tbl.Controls.Add(pnlTrichYeu, 0, r);
+            tbl.SetColumnSpan(pnlTrichYeu, 4);
             r++;
 
-            // Row 5: File path
             AddLabel(tbl, r, 0, "File văn bản gốc");
-            txtFilePath = new TextBox
-            {
-                BorderStyle   = BorderStyle.FixedSingle,
-                BackColor     = Color.FromArgb(248, 250, 252),
-                ForeColor     = CMuted,
-                Font          = new Font("Segoe UI", 8.5f, FontStyle.Italic),
-                Height        = 26,
-                ReadOnly      = true,
-                Margin        = new Padding(0, 4, 0, 4)
-            };
+            txtFilePath = new TextBox { BorderStyle = BorderStyle.FixedSingle, BackColor = Color.FromArgb(248, 250, 252), ForeColor = CLabel, Font = new Font("Segoe UI", 9f, FontStyle.Italic), ReadOnly = true, Dock = DockStyle.Top };
             tbl.Controls.Add(txtFilePath, 1, r);
             tbl.SetColumnSpan(txtFilePath, 3);
             r++;
 
             grpInfo.Controls.Add(tbl);
+            tbl.BringToFront();
 
-            // ── Section 3: Lịch sử & Nhắc nhở ───────────────────
-            var grpRemind = MakeSectionBox("🔔  NHẮC NHỞ TỰ ĐỘNG", 780);
-
-            var pnlReminderInfo = new Panel
-            {
-                Width     = 740,
-                Height    = 54,
-                BackColor = Color.FromArgb(239, 246, 255),
-                Margin    = new Padding(0, 6, 0, 4)
-            };
-            pnlReminderInfo.Paint += (s, e) =>
-            {
-                using var pen = new Pen(Color.FromArgb(186, 214, 250));
-                e.Graphics.DrawRectangle(pen, new Rectangle(0, 0, pnlReminderInfo.Width - 1, pnlReminderInfo.Height - 1));
-
-                using var iconBrush = new SolidBrush(Color.FromArgb(37, 99, 235));
-                using var fnt = new Font("Segoe UI", 9f);
-                string line1 = "🔔  Hệ thống sẽ tự động tạo nhắc nhở qua Windows Calendar:";
-                string line2 = "     • 7 ngày trước hạn  •  3 ngày trước hạn  •  1 ngày trước hạn  •  Đúng ngày hết hạn";
-                e.Graphics.DrawString(line1, new Font("Segoe UI", 9f, FontStyle.Bold), iconBrush, new PointF(14, 8));
-                e.Graphics.DrawString(line2, fnt, iconBrush, new PointF(14, 28));
-            };
-
-            grpRemind.Controls.Add(pnlReminderInfo);
-
-            // ── Section 4: Thảo luận / Comment (Facebook style) ────────
-            var grpComments = MakeSectionBox("💬  THẢO LUẬN & GHI CHÚ", 780);
+            // ── Section 3: Nhắc nhở ──────────────────────────────
+            var grpRemind = MakeSectionBox("🔔  CÁC MỐC THỜI HẠN");
             
-            pnlCommentsList = new FlowLayoutPanel {
-                Width = 740,
-                Height = 250,
-                AutoScroll = true,
-                FlowDirection = FlowDirection.TopDown,
-                WrapContents = false,
-                BackColor = Color.FromArgb(248, 250, 252),
-                Padding = new Padding(5),
-                Margin = new Padding(0, 5, 0, 5)
+            pnlAdditionalDeadlines = new TableLayoutPanel { 
+                ColumnCount = 1, 
+                Dock = DockStyle.Top, 
+                AutoSize = true,
+                Padding = new Padding(0, 5, 0, 5)
             };
+            pnlAdditionalDeadlines.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            grpRemind.Controls.Add(pnlAdditionalDeadlines);
+            
+            mainStack.Controls.Add(grpRemind, 0, 2);
+            var grpComments = MakeSectionBox("💬  Ý KIẾN / BÌNH LUẬN");
 
-            var pnlInput = new Panel { Width = 740, Height = 80, Margin = new Padding(0, 5, 0, 0) };
-            txtCommentInput = new TextBox {
-                Multiline = true,
-                Dock = DockStyle.Fill,
-                PlaceholderText = "Nhập nội dung thảo luận hoặc ghi chú tại đây...",
-                Font = new Font("Segoe UI", 10)
-            };
-            btnSendComment = new Button {
-                Text = "Gửi",
-                Dock = DockStyle.Right,
-                Width = 80,
-                BackColor = CAccent,
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 9, FontStyle.Bold)
-            };
-            btnSendComment.Click += BtnSendComment_Click;
+            // Ráp nối vào stack chính (Sử dụng hàng cố định để đảm bảo vị trí 100% chính xác)
+            mainStack.Controls.Add(grpRemind, 0, 2);   // Hàng 2
+            mainStack.Controls.Add(grpComments, 0, 3); // Hàng 3 (Dưới cùng)
 
-            pnlInput.Controls.Add(txtCommentInput);
-            pnlInput.Controls.Add(btnSendComment);
-
+            pnlCommentsList = new TableLayoutPanel { ColumnCount = 1, Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(0, 10, 0, 10) };
+            pnlCommentsList.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
             grpComments.Controls.Add(pnlCommentsList);
-            grpComments.Controls.Add(pnlInput);
 
-            mainStack.Controls.Add(pnlDeadlineBanner);
-            mainStack.Controls.Add(grpInfo);
-            mainStack.Controls.Add(grpRemind);
-            mainStack.Controls.Add(grpComments);
+            var pnlCommentInput = new Panel { Dock = DockStyle.Top, Height = 100, Padding = new Padding(0, 10, 0, 0) };
+            txtCommentInput = new TextBox { Multiline = true, Dock = DockStyle.Fill, BorderStyle = BorderStyle.FixedSingle };
+            btnSendComment = MakeButton("Gửi ý kiến", CAccent, Color.White);
+            btnSendComment.Dock = DockStyle.Right; btnSendComment.Width = 100;
+            btnSendComment.Click += BtnSendComment_Click;
+            pnlCommentInput.Controls.Add(txtCommentInput);
+            pnlCommentInput.Controls.Add(btnSendComment);
+            grpComments.Controls.Add(pnlCommentInput);
 
             pnlScroll.Controls.Add(mainStack);
 
@@ -379,15 +295,15 @@ namespace ToolCalender.Forms
         // ════════════════════════════════════════════════════════
         // Section Box Helper
         // ════════════════════════════════════════════════════════
-        private Panel MakeSectionBox(string title, int width)
+        private Panel MakeSectionBox(string title)
         {
             var pnl = new Panel
             {
-                Width     = width,
+                Dock      = DockStyle.Top,
                 AutoSize  = true,
                 BackColor = CCard,
                 Margin    = new Padding(0, 0, 0, 12),
-                Padding   = new Padding(14, 8, 14, 14)
+                Padding   = new Padding(14, 38, 14, 14) // Tăng padding top để trừ chỗ cho tiêu đề vẽ tay
             };
             pnl.Paint += (s, e) =>
             {
@@ -401,8 +317,6 @@ namespace ToolCalender.Forms
                 using var fnt = new Font("Segoe UI", 9.5f, FontStyle.Bold);
                 e.Graphics.DrawString(title, fnt, txtBrush, new PointF(14, 9));
             };
-            // Header spacer
-            pnl.Controls.Add(new Panel { Height = 40, BackColor = Color.Transparent });
             return pnl;
         }
 
@@ -490,6 +404,44 @@ namespace ToolCalender.Forms
             chkDaTaoLich.Checked = doc.DaTaoLich;
             lblNgayThem.Text     = $"Ngày thêm vào hệ thống: {doc.NgayThem:dd/MM/yyyy  HH:mm}  |  ID: {doc.Id}";
             btnCalendar.Text     = doc.DaTaoLich ? "📅  Cập Nhật Lịch" : "📅  Tạo Lịch Nhắc";
+
+            // Hiển thị danh sách các hạn phụ
+            pnlAdditionalDeadlines.Controls.Clear();
+            if (doc.AdditionalDeadlines != null && doc.AdditionalDeadlines.Count > 0)
+            {
+                foreach (var dt in doc.AdditionalDeadlines)
+                {
+                    var pnl = new Panel { 
+                        Size = new Size(220, 32), 
+                        BackColor = Color.FromArgb(239, 246, 255),
+                        Margin = new Padding(0, 0, 10, 10)
+                    };
+                    pnl.Paint += (s, e) => {
+                        using var pen = new Pen(CBorder);
+                        e.Graphics.DrawRectangle(pen, 0, 0, pnl.Width - 1, pnl.Height - 1);
+                    };
+
+                    var lblIcon = new Label { Text = "⏰", AutoSize = true, Location = new Point(8, 7), ForeColor = CAccent };
+                    var lblTime = new Label { 
+                        Text = dt.ToString("HH:mm - dd/MM/yyyy"), 
+                        AutoSize = true, 
+                        Location = new Point(32, 7),
+                        ForeColor = Color.FromArgb(30, 58, 95),
+                        Font = new Font("Segoe UI", 9f, FontStyle.Bold)
+                    };
+                    pnl.Controls.AddRange(new Control[] { lblIcon, lblTime });
+                    pnlAdditionalDeadlines.Controls.Add(pnl);
+                }
+            }
+            else
+            {
+                pnlAdditionalDeadlines.Controls.Add(new Label { 
+                    Text = "Không có mốc thời gian bổ sung.", 
+                    ForeColor = CMuted, 
+                    Font = new Font("Segoe UI", 9f, FontStyle.Italic),
+                    AutoSize = true 
+                });
+            }
         }
 
         // ════════════════════════════════════════════════════════
@@ -517,7 +469,8 @@ namespace ToolCalender.Forms
                 CoQuanChuQuan = txtChuQuan.Text.Trim(),
                 ThoiHan       = chkKhongThoiHan.Checked ? (DateTime?)null : dtpThoiHan.Value.Date,
                 DonViChiDao   = txtDonViChiDao.Text.Trim(),
-                DaTaoLich     = chkDaTaoLich.Checked
+                DaTaoLich     = chkDaTaoLich.Checked,
+                AdditionalDeadlines = new List<DateTime>(_original.AdditionalDeadlines) // Giữ nguyên các hạn cũ nếu không có UI sửa
             };
 
             this.DialogResult = DialogResult.OK;

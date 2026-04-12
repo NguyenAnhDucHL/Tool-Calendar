@@ -44,11 +44,18 @@ namespace ToolCalender
         private readonly NotificationService _notifySvc = new();
         private NotifyIcon _notifyIcon = new();
         private List<DocumentRecord> _allDocs = new();
+        private List<DocumentRecord> _filteredDocs = new(); // Danh sách sau khi search
+        private int _currentPage = 1;
+        private int _pageSize = 20;
+        private Label lblPageInfo = new();
+        private Button btnPrev = new();
+        private Button btnNext = new();
 
         // ════════════════════════════════════════════════════════════
         public Form1()
         {
             InitializeComponent();
+            try { this.Icon = new Icon(@"asset\app_icon.ico"); } catch { }
             BuildUI();
             SetupTrayIcon();
             LoadData();
@@ -66,7 +73,22 @@ namespace ToolCalender
             this.StartPosition = FormStartPosition.CenterScreen;
             this.BackColor     = CBg;
             this.Font          = new Font("Segoe UI", 9.5f);
-            this.Icon          = SystemIcons.Application;
+            try { this.Icon = new Icon(@"asset\app_icon.ico"); } catch { }
+            this.AllowDrop     = true;
+
+            this.DragEnter += (s, e) => {
+                if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true) e.Effect = DragDropEffects.Copy;
+            };
+            this.DragDrop += async (s, e) => {
+                var paths = e.Data?.GetData(DataFormats.FileDrop) as string[];
+                if (paths == null || paths.Length == 0) return;
+
+                if (Directory.Exists(paths[0])) {
+                    await OpenBatchImport(paths[0]);
+                } else {
+                    await OpenSingleAdd(paths[0]);
+                }
+            };
 
             // ── Status Bar (Bottom) ─────────────────────────────
             var pnlStatus = new Panel
@@ -99,33 +121,118 @@ namespace ToolCalender
                 e.Graphics.DrawLine(pen, 0, pnlHeader.Height - 3, pnlHeader.Width, pnlHeader.Height - 3);
             };
 
-            // --- User Info Pill (Góc phải trên) ---
-            var pnlUserPill = new Panel {
-                BackColor = Color.FromArgb(40, 255, 255, 255), // Màu trắng trong suốt mờ
-                Height = 34,
-                AutoSize = true,
-                Padding = new Padding(10, 0, 10, 0),
-                Anchor = AnchorStyles.Top | AnchorStyles.Right
+            // --- Layout chính cho Header (Sử dụng TableLayoutPanel để chia 2 cột Trái/Phải) ---
+            var tblHeader = new TableLayoutPanel {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 1,
+                BackColor = Color.Transparent,
+                Margin = new Padding(0),
+                Padding = new Padding(20, 0, 0, 0)
             };
-            pnlUserPill.Region = Region.FromHrgn(CreateRoundRectRgn(0, 0, 300, 34, 15, 15)); // Sẽ resize sau
+            tblHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 70f)); // Cột trái cho Tiêu đề
+            tblHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30f)); // Cột phải cho Account/Đồng hồ
+
+            // --- Nhóm Tiêu đề (Bên trái) ---
+            var pnlLeftHeader = new FlowLayoutPanel {
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                AutoSize = true,
+                BackColor = Color.Transparent,
+                Anchor = AnchorStyles.Left | AnchorStyles.Top,
+                Margin = new Padding(0, 10, 0, 0)
+            };
+
+            var picLogo = new PictureBox {
+                Image = Image.FromFile(@"asset\app_logo.png"),
+                SizeMode = PictureBoxSizeMode.Zoom,
+                Size = new Size(48, 48),
+                Margin = new Padding(0, 0, 15, 0)
+            };
+
+            var pnlTitles = new FlowLayoutPanel {
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false,
+                AutoSize = true,
+                BackColor = Color.Transparent,
+                Margin = new Padding(0)
+            };
+
+            var lblTitle = new Label {
+                Text = "HỆ THỐNG QUẢN LÝ VĂN BẢN HÀNH CHÍNH",
+                ForeColor = CHeaderText,
+                Font = new Font("Segoe UI", 16f, FontStyle.Bold),
+                AutoSize = true,
+                Margin = new Padding(0, 0, 0, 2)
+            };
+
+            var lblSub = new Label {
+                Text = "Theo dõi thời hạn • Nhắc nhở tự động • Quản lý tập trung",
+                ForeColor = Color.FromArgb(147, 197, 253),
+                Font = new Font("Segoe UI", 9.5f, FontStyle.Italic),
+                AutoSize = true,
+                Margin = new Padding(4, 0, 0, 0)
+            };
+            pnlTitles.Controls.Add(lblTitle);
+            pnlTitles.Controls.Add(lblSub);
+            
+            pnlLeftHeader.Controls.Add(picLogo);
+            pnlLeftHeader.Controls.Add(pnlTitles);
+
+            // --- Nhóm Thông tin (Bên phải) ---
+            var pnlRightHeader = new TableLayoutPanel {
+                Dock = DockStyle.Fill,
+                AutoSize = true,
+                ColumnCount = 1,
+                RowCount = 2,
+                BackColor = Color.Transparent,
+                Margin = new Padding(0),
+                Padding = new Padding(0)
+            };
+            pnlRightHeader.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            pnlRightHeader.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            // Thẻ Account (FlowLayoutPanel tự động dãn)
+            var pnlUserPill = new FlowLayoutPanel {
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                WrapContents = false,
+                FlowDirection = FlowDirection.LeftToRight,
+                BackColor = Color.Transparent,
+                Anchor = AnchorStyles.Right,
+                Margin = new Padding(0, 10, 20, 2),
+                Padding = new Padding(8, 6, 8, 8)
+            };
+            pnlUserPill.Paint += (s, e) => {
+                e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                using var brush = new SolidBrush(Color.FromArgb(50, 255, 255, 255));
+                using var path = new System.Drawing.Drawing2D.GraphicsPath();
+                int r = 16;
+                path.AddArc(0, 0, r, r, 180, 90);
+                path.AddArc(pnlUserPill.Width - r - 1, 0, r, r, 270, 90);
+                path.AddArc(pnlUserPill.Width - r - 1, pnlUserPill.Height - r - 1, r, r, 0, 90);
+                path.AddArc(0, pnlUserPill.Height - r - 1, r, r, 90, 90);
+                path.CloseFigure();
+                e.Graphics.FillPath(brush, path);
+            };
 
             var lblUser = new Label {
                 Text = $"👤 {SessionService.CurrentUser?.Username} ({SessionService.CurrentUser?.Role})",
                 ForeColor = Color.White,
-                Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+                Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
                 AutoSize = true,
                 BackColor = Color.Transparent,
-                Location = new Point(10, 8)
+                Margin = new Padding(2, 2, 8, 0)
             };
 
             var btnLogout = new Label {
                 Text = "🚪 Đăng xuất",
                 ForeColor = Color.FromArgb(254, 202, 202),
-                Font = new Font("Segoe UI", 8.5f, FontStyle.Underline),
+                Font = new Font("Segoe UI", 9f, FontStyle.Underline),
                 AutoSize = true,
                 BackColor = Color.Transparent,
                 Cursor = Cursors.Hand,
-                Location = new Point(10, 8) // Sẽ chỉnh lại trong sự kiện Resize
+                Margin = new Padding(0, 2, 2, 0)
             };
             btnLogout.Click += (s, e) => {
                 SessionService.Logout();
@@ -134,53 +241,29 @@ namespace ToolCalender
 
             pnlUserPill.Controls.Add(lblUser);
             pnlUserPill.Controls.Add(btnLogout);
-            pnlHeader.Controls.Add(pnlUserPill);
+            pnlRightHeader.Controls.Add(pnlUserPill, 0, 0);
 
-            // Cập nhật vị trí và kích thước linh hoạt
-            pnlHeader.Resize += (s, e) => {
-                pnlUserPill.Width = lblUser.Width + btnLogout.Width + 35;
-                pnlUserPill.Location = new Point(pnlHeader.Width - pnlUserPill.Width - 20, 12);
-                lblUser.Location = new Point(10, 8);
-                btnLogout.Location = new Point(lblUser.Right + 10, 9);
-                
-                lblClock.Location = new Point(pnlHeader.Width - lblClock.Width - 25, 48); // Đẩy đồng hồ xuống dưới Pill
-            };
-
-            var lblTitle = new Label
-            {
-                Text      = "🏛  HỆ THỐNG QUẢN LÝ VĂN BẢN HÀNH CHÍNH",
-                ForeColor = CHeaderText,
-                Font      = new Font("Segoe UI", 16f, FontStyle.Bold),
-                AutoSize  = false,
-                UseCompatibleTextRendering = true,
-                Size      = new Size(800, 40),
-                Location  = new Point(20, 8)
-            };
-            var lblSub = new Label
-            {
-                Text      = "Theo dõi thời hạn • Nhắc nhở tự động • Quản lý tập trung",
+            // Đồng hồ bên dưới Thẻ Account
+            lblClock = new Label {
                 ForeColor = Color.FromArgb(147, 197, 253),
-                Font      = new Font("Segoe UI", 9.5f, FontStyle.Italic),
-                AutoSize  = false,
-                UseCompatibleTextRendering = true,
-                Size      = new Size(800, 30),
-                Location  = new Point(24, 45)
+                Font = new Font("Segoe UI", 9.5f),
+                AutoSize = true,
+                Anchor = AnchorStyles.Right,
+                Margin = new Padding(0, 0, 24, 0),
+                BackColor = Color.Transparent
             };
+            pnlRightHeader.Controls.Add(lblClock, 0, 1);
 
-            lblClock = new Label
-            {
-                ForeColor = Color.FromArgb(147, 197, 253),
-                Font      = new Font("Segoe UI", 9.5f),
-                AutoSize  = true,
-                TextAlign = ContentAlignment.MiddleRight
-            };
+            // Chạy đồng hồ
             UpdateClock();
             var clockTimer = new System.Windows.Forms.Timer { Interval = 30000 };
             clockTimer.Tick += (s, e) => UpdateClock();
             clockTimer.Start();
 
-            pnlHeader.Controls.AddRange(new Control[] { lblTitle, lblSub, lblClock });
-            pnlHeader.Controls.Add(lblTitle);
+            // Ráp nối vào Header
+            tblHeader.Controls.Add(pnlLeftHeader, 0, 0);
+            tblHeader.Controls.Add(pnlRightHeader, 1, 0);
+            pnlHeader.Controls.Add(tblHeader);
 
             // ── Stats Bar ────────────────────────────────────────
             var pnlStats = new Panel
@@ -292,6 +375,7 @@ namespace ToolCalender
                 btnAdd.Visible = false;
                 btnDelete.Visible = false;
                 btnImport.Visible = false;
+                btnEdit.Text = "👁  Xem Chi Tiết";
             }
 
             // ── DataGridView ─────────────────────────────────────
@@ -314,7 +398,7 @@ namespace ToolCalender
                 AllowUserToResizeRows          = false,
                 ReadOnly                       = true,
                 SelectionMode                  = DataGridViewSelectionMode.FullRowSelect,
-                MultiSelect                    = false,
+                MultiSelect                    = true,
                 AutoSizeRowsMode               = DataGridViewAutoSizeRowsMode.AllCells,
                 AutoSizeColumnsMode            = DataGridViewAutoSizeColumnsMode.None,
                 ColumnHeadersHeightSizeMode        = DataGridViewColumnHeadersHeightSizeMode.AutoSize,
@@ -365,6 +449,28 @@ namespace ToolCalender
             };
 
             pnlGrid.Controls.Add(dgv);
+
+            // ── Pagination Panel (Bottom of Grid) ────────────────
+            var pnlPagination = new Panel {
+                Dock = DockStyle.Bottom,
+                Height = 45,
+                BackColor = Color.FromArgb(241, 245, 249),
+                Padding = new Padding(0, 5, 20, 5)
+            };
+            pnlPagination.Paint += (s, e) => e.Graphics.DrawLine(new Pen(CBorder), 0, 0, pnlPagination.Width, 0);
+
+            btnPrev = new Button { Text = "◀  Trang Trước", Width = 120, Height = 32, Dock = DockStyle.Right, FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand, BackColor = Color.White };
+            btnPrev.FlatAppearance.BorderColor = CBorder;
+            btnPrev.Click += (s, e) => { if (_currentPage > 1) { _currentPage--; DisplayPage(); } };
+
+            lblPageInfo = new Label { Text = "Trang 1 / 1", Width = 120, Height = 32, Dock = DockStyle.Right, TextAlign = ContentAlignment.MiddleCenter, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) };
+
+            btnNext = new Button { Text = "Trang Sau  ▶", Width = 120, Height = 32, Dock = DockStyle.Right, FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand, BackColor = Color.White };
+            btnNext.FlatAppearance.BorderColor = CBorder;
+            btnNext.Click += (s, e) => { if (_currentPage < Math.Ceiling((double)_filteredDocs.Count / _pageSize)) { _currentPage++; DisplayPage(); } };
+
+            pnlPagination.Controls.AddRange(new Control[] { btnNext, lblPageInfo, btnPrev });
+            pnlGrid.Controls.Add(pnlPagination);
 
             // ── Assembly ─────────────────────────────────────────
             this.Controls.Add(pnlGrid);
@@ -470,7 +576,7 @@ namespace ToolCalender
         private void FilterData()
         {
             string q = txtSearch.Text.Trim().ToLower();
-            var list = string.IsNullOrEmpty(q)
+            _filteredDocs = string.IsNullOrEmpty(q)
                 ? _allDocs
                 : _allDocs.Where(d =>
                     (d.SoVanBan       ?? "").ToLower().Contains(q) ||
@@ -479,9 +585,27 @@ namespace ToolCalender
                     (d.CoQuanChuQuan  ?? "").ToLower().Contains(q) ||
                     (d.DonViChiDao    ?? "").ToLower().Contains(q)).ToList();
 
+            _currentPage = 1; // Reset về trang đầu khi tìm kiếm
+            DisplayPage();
+        }
+
+        private void DisplayPage()
+        {
             dgv.Rows.Clear();
-            int stt = 1;
-            foreach (var doc in list)
+            
+            int totalItems = _filteredDocs.Count;
+            int totalPages = (int)Math.Ceiling((double)totalItems / _pageSize);
+            if (totalPages == 0) totalPages = 1;
+            if (_currentPage > totalPages) _currentPage = totalPages;
+
+            lblPageInfo.Text = $"Trang {_currentPage} / {totalPages}";
+            btnPrev.Enabled = (_currentPage > 1);
+            btnNext.Enabled = (_currentPage < totalPages);
+
+            var pageItems = _filteredDocs.Skip((_currentPage - 1) * _pageSize).Take(_pageSize).ToList();
+
+            int stt = ((_currentPage - 1) * _pageSize) + 1;
+            foreach (var doc in pageItems)
             {
                 int idx = dgv.Rows.Add(
                     stt++,
@@ -489,7 +613,8 @@ namespace ToolCalender
                     doc.TrichYeu,
                     doc.NgayBanHanh?.ToString("dd/MM/yyyy") ?? "—",
                     doc.CoQuanChuQuan,
-                    doc.ThoiHan?.ToString("dd/MM/yyyy") ?? "Chưa có",
+                    (doc.ThoiHan?.ToString("dd/MM/yyyy") ?? "Chưa có") + 
+                    (doc.AdditionalDeadlines?.Count > 0 ? $" (+{doc.AdditionalDeadlines.Count})" : ""),
                     GetTrangThaiText(doc),
                     doc.DaTaoLich ? "✅" : "—"
                 );
@@ -569,10 +694,22 @@ namespace ToolCalender
         // ════════════════════════════════════════════════════════════
         // Actions
         // ════════════════════════════════════════════════════════════
-        private void BtnAdd_Click(object? sender, EventArgs e)
+        private async void BtnAdd_Click(object? sender, EventArgs e)
+        {
+            await OpenSingleAdd();
+        }
+
+        private async Task OpenSingleAdd(string initialPath = null)
         {
             using var form = new FormAddDocument();
-            if (form.ShowDialog(this) == DialogResult.OK && form.Result != null)
+            if (!string.IsNullOrEmpty(initialPath)) {
+                // Manually trigger load if path provided
+                // This logic is mostly handled inside FormAddDocument.LoadFile
+                // but we call it here for drag-drop flow
+            }
+
+            var res = form.ShowDialog(this);
+            if (res == DialogResult.OK && form.Result != null)
             {
                 int id = DatabaseService.Insert(form.Result);
                 form.Result.Id = id;
@@ -584,6 +721,42 @@ namespace ToolCalender
                         row.Selected = true;
 
                 ShowSuccessToast($"Đã lưu văn bản «{form.Result.SoVanBan}» thành công!");
+            }
+            else if (res == DialogResult.Retry && form.Tag is string folderPath)
+            {
+                // Pivot to batch!
+                await OpenBatchImport(folderPath);
+            }
+        }
+
+        private void BtnImport_Click(object? sender, EventArgs e)
+        {
+            _ = OpenBatchImport();
+        }
+
+        private async Task OpenBatchImport(string initialFolder = null)
+        {
+            using var form = new FormBatchImport();
+            if (!string.IsNullOrEmpty(initialFolder))
+            {
+                // Biến form.ShowDialog() là chặn (blocking), nên ta cần chạy scan sau khi form load
+                form.Load += async (s, e) => await form.ScanFolderAsync(initialFolder);
+            }
+
+            if (form.ShowDialog(this) == DialogResult.OK && form.Results != null && form.Results.Count > 0)
+            {
+                int successCount = 0;
+                foreach (var doc in form.Results)
+                {
+                    if (doc.SoVanBan == "LỖI") continue;
+                    try {
+                        DatabaseService.Insert(doc);
+                        successCount++;
+                    } catch { }
+                }
+
+                LoadData();
+                ShowSuccessToast($"Đã nhập thành công {successCount} văn bản vào hệ thống!");
             }
         }
 
@@ -600,22 +773,41 @@ namespace ToolCalender
 
         private void BtnDelete_Click(object? sender, EventArgs e)
         {
-            var (doc, _) = GetSelectedDoc();
-            if (doc == null)
+            if (dgv.SelectedRows.Count == 0)
             {
-                ShowInfo("Vui lòng chọn một văn bản để xóa.");
+                ShowInfo("Vui lòng chọn ít nhất một văn bản để xóa.\n(Gợi ý: Nhấn Ctrl+A để chọn tất cả hoặc giữ phím Ctrl/Shift để chọn nhiều file giống như Excel).");
                 return;
             }
 
+            var selectedDocs = new List<DocumentRecord>();
+            foreach (DataGridViewRow row in dgv.SelectedRows)
+            {
+                if (row.Tag is DocumentRecord rec)
+                {
+                    selectedDocs.Add(rec);
+                }
+            }
+
+            if (selectedDocs.Count == 0) return;
+
+            string title = "Xác nhận xóa văn bản";
+            string msg = selectedDocs.Count == 1 
+                ? $"Bạn có chắc chắn muốn xóa văn bản:\n\n  «{selectedDocs[0].SoVanBan}»\n\nThao tác này không thể hoàn tác!"
+                : $"Bạn có chắc chắn muốn xóa {selectedDocs.Count} văn bản đã chọn?\n\nThao tác này không thể hoàn tác!";
+
             using var confirm = new FormConfirm(
-                "Xác nhận xóa văn bản",
-                $"Bạn có chắc chắn muốn xóa văn bản:\n\n  «{doc.SoVanBan}»\n\nThao tác này không thể hoàn tác!",
+                title,
+                msg,
                 "🗑  Xóa", Color.FromArgb(185, 28, 28));
 
             if (confirm.ShowDialog(this) == DialogResult.OK)
             {
-                DatabaseService.Delete(doc.Id);
+                foreach (var doc in selectedDocs)
+                {
+                    DatabaseService.Delete(doc.Id);
+                }
                 LoadData();
+                ShowSuccessToast($"Đã xóa thành công {selectedDocs.Count} văn bản.");
             }
         }
 
@@ -807,7 +999,7 @@ namespace ToolCalender
             _notifyIcon = new NotifyIcon
             {
                 Text    = "Quản Lý Văn Bản - Nhắc Nhở Deadline",
-                Icon    = SystemIcons.Application,
+                Icon    = this.Icon,
                 Visible = true
             };
 
@@ -868,7 +1060,11 @@ namespace ToolCalender
             int newWidth = availableWidth - otherColumnsWidth;
             if (newWidth > 200) // Đảm bảo không quá nhỏ
             {
-                dgv.Columns["colTrichYeu"].Width = newWidth;
+                var col = dgv.Columns["colTrichYeu"];
+                if (col != null)
+                {
+                    col.Width = newWidth;
+                }
             }
         }
 
@@ -877,45 +1073,6 @@ namespace ToolCalender
             _notifySvc.Dispose();
             _notifyIcon.Dispose();
             base.OnFormClosed(e);
-        }
-        private async void BtnImport_Click(object? sender, EventArgs e)
-        {
-            using var ofd = new OpenFileDialog { Filter = "Văn bản (*.pdf;*.docx;*.doc)|*.pdf;*.docx;*.doc", Title = "Chọn văn bản để nhập" };
-            if (ofd.ShowDialog() == DialogResult.OK)
-            {
-                await ProcessFileImport(ofd.FileName);
-            }
-        }
-
-        private async Task ProcessFileImport(string filePath)
-        {
-            try
-            {
-                // Hiện thông báo đang xử lý
-                var loading = new Form { Text = "Đang xử lý...", Size = new Size(300, 100), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedToolWindow };
-                loading.Controls.Add(new Label { Text = "Đang bóc tách dữ liệu từ văn bản...\nVui lòng đợi trong giây lát.", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter });
-                loading.Show(this);
-                this.Enabled = false;
-
-                var result = await DocumentExtractorService.ExtractFromFileAsync(filePath);
-                
-                loading.Close();
-                this.Enabled = true;
-
-                // Mở Form xác nhận thông tin
-                using var formAdd = new FormAddDocument(result);
-                if (formAdd.ShowDialog(this) == DialogResult.OK && formAdd.Result != null)
-                {
-                    int id = DatabaseService.Insert(formAdd.Result);
-                    LoadData();
-                    ShowSuccessToast("Đã nhập văn bản thành công!");
-                }
-            }
-            catch (Exception ex)
-            {
-                this.Enabled = true;
-                MessageBox.Show($"Lỗi khi bóc tách văn bản: {ex.Message}", "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
         }
         [System.Runtime.InteropServices.DllImport("Gdi32.dll", EntryPoint = "CreateRoundRectRgn")]
         private static extern IntPtr CreateRoundRectRgn(int nLeftRect, int nTopRect, int nRightRect, int nBottomRect, int nWidthEllipse, int nHeightEllipse);

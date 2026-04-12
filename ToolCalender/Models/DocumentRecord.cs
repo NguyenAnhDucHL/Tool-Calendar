@@ -9,6 +9,7 @@ namespace ToolCalender.Models
         public string CoQuanBanHanh { get; set; } = "";
         public string CoQuanChuQuan { get; set; } = "";  // Cơ quan chủ quản tham mưu
         public DateTime? ThoiHan { get; set; }
+        public List<DateTime> AdditionalDeadlines { get; set; } = new();
         public string DonViChiDao { get; set; } = "";    // Đơn vị/phòng bị chỉ đạo
         public string FilePath { get; set; } = "";
         public DateTime NgayThem { get; set; } = DateTime.Now;
